@@ -141,10 +141,38 @@ run_section_a() {
   echo
   echo ">>> Sección A: Cliente CLI completo — login → sync → upload → download → logout$port_note"
   local log_file="$RUN_DIR/01-section-a-cliente-cli.log"
+  local section_a_status="PASS"
   if USE_H2=true \
        NODE_PORT="$section_a_port" \
        NODE_BASE_URL="http://localhost:$section_a_port" \
        "$ROOT_DIR/scripts/dev/smoke-client-login-sync-upload-download-logout.sh" 2>&1 | tee "$log_file"; then
+    section_a_status="PASS"
+  else
+    section_a_status="FAIL"
+  fi
+
+  # Cleanup del nodo Spring Boot standalone arrancado por start-client-test-node.sh
+  # con `nohup ... &`. Sin esta limpieza el proceso sobrevive a la seccion A y
+  # choca con el cluster Docker que la seccion B intenta levantar en el mismo
+  # puerto (Error: ports are not available, address already in use).
+  if command -v lsof >/dev/null 2>&1; then
+    local stale_pids
+    stale_pids=$(lsof -ti :"$section_a_port" -sTCP:LISTEN 2>/dev/null || true)
+    if [[ -n "$stale_pids" ]]; then
+      echo "==> Stopping section A standalone node (pids: $stale_pids, port: $section_a_port)"
+      # shellcheck disable=SC2086
+      kill $stale_pids 2>/dev/null || true
+      sleep 2
+      stale_pids=$(lsof -ti :"$section_a_port" -sTCP:LISTEN 2>/dev/null || true)
+      if [[ -n "$stale_pids" ]]; then
+        # shellcheck disable=SC2086
+        kill -9 $stale_pids 2>/dev/null || true
+        sleep 1
+      fi
+    fi
+  fi
+
+  if [[ "$section_a_status" == "PASS" ]]; then
     log_status "A (cliente CLI)" "PASS" "$log_file (port=$section_a_port)"
     return 0
   else
