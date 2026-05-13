@@ -1,0 +1,422 @@
+services:
+  postgres-node1:
+    image: postgres:16
+    container_name: node-postgres-1
+    environment:
+      POSTGRES_DB: node
+      POSTGRES_USER: node
+      POSTGRES_PASSWORD: node
+    ports:
+      - "5433:5432"
+    volumes:
+      - node_postgres_data1:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U node -d node"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  postgres-node2:
+    image: postgres:16
+    container_name: node-postgres-2
+    environment:
+      POSTGRES_DB: node
+      POSTGRES_USER: node
+      POSTGRES_PASSWORD: node
+    ports:
+      - "5434:5432"
+    volumes:
+      - node_postgres_data2:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U node -d node"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  postgres-node3:
+    image: postgres:16
+    container_name: node-postgres-3
+    environment:
+      POSTGRES_DB: node
+      POSTGRES_USER: node
+      POSTGRES_PASSWORD: node
+    ports:
+      - "5435:5432"
+    volumes:
+      - node_postgres_data3:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U node -d node"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  node1:
+    build: .
+    container_name: distributed-node-1
+    depends_on:
+      postgres-node1:
+        condition: service_healthy
+    env_file:
+      - ./docker/env/node1.env
+    environment:
+      SERVER_PORT: 8080
+      NODE_RECOVERY_RESTORE_STRATEGY: BYTES_FROM_TUTOR
+      # NODE_RECOVERY_MODE: RESTORE
+      # Puerto management (Actuator + /actuator/prometheus) aislado del socket
+      # principal. Solo accesible dentro de la red docker compose; el host solo
+      # ve 8080 -> 808{1,2,3}.
+      MANAGEMENT_SERVER_PORT: 8181
+      # Si el contenedor `tempo` no está arriba (sin --profile observability) el
+      # SDK de OTel hace drop silencioso de los spans, los nodos siguen
+      # funcionando sin penalización. Sampler always_on porque el cluster es
+      # demostrativo, no productivo.
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+      OTEL_TRACES_SAMPLER_ARG: "1.0"
+      NODE_PERSISTENCE_MODE: postgres
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-node1:5432/node
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_USERNAME: node
+      SPRING_DATASOURCE_PASSWORD: node
+      NODE_FEATURES_DISCOVERY_ENABLED: "true"
+      # node1 es nodo común: no mantiene tabla local ni endpoints discovery
+      # server; se autoanuncia al supernodo y consulta supernodo via signed HTTP.
+      NODE_DISCOVERY_SUPERNODE_ROLE_ENABLED: "false"
+      NODE_FEATURES_NEGOTIATION_ENABLED: "true"
+      # Activamos la superficie /negotiate/** en docker dev para mantener smoke-e2e verde.
+      # Default en application.properties = false (producción).
+      NODE_FEATURES_NEGOTIATION_FORMAL_ENABLED: "true"
+      NODE_FEATURES_INGEST_ENABLED: "true"
+      NODE_FEATURES_RECOVERY_ENABLED: "false"
+      NODE_TOPOLOGY_TUTORNODEID: tutor-node
+      NODE_TOPOLOGY_TUTORBASEURL: http://node2:8080
+      # Lista de supernodos discovery con failover round-robin. Con M=1 no hay
+      # failover real; el código lo soporta cuando se añaden más supernodos.
+      NODE_TOPOLOGY_DISCOVERYSUPERNODES: http://node2:8080
+      NODE_DISCOVERY_REQUIRE_TARGET_FAILURE_DOMAIN: "false"
+      NODE_DISCOVERY_REQUIRE_DISTRIBUTION_PLAN: "false"
+      NODE_FAILURE_DOMAIN: zone-a/rack-1
+      # Liveness acelerado para que la demo sea visible en vivo: tras `docker
+      # kill` de un peer, ACTIVE -> SUSPECT -> UNRESPONSIVE -> ESCALATED ocurre
+      # en ~30-60 s en lugar de los 30 min del default productivo.
+      # NO USAR EN PRODUCCIÓN.
+      NODE_CUSTODY_LIVENESS_ENABLED: "true"
+      NODE_CUSTODY_LIVENESS_BASE_INTERVAL_SECONDS: "30"
+      NODE_CUSTODY_LIVENESS_FAST_RETRY_INTERVAL_SECONDS: "10"
+      NODE_CUSTODY_LIVENESS_ESCALATION_ATTEMPT_THRESHOLD: "3"
+      # TTL de fragments custody peer-side elevado a 2h para sobrevivir a un
+      # ciclo fallo+escalation+restore. El default productivo (10 min) es
+      # inferior al MTTR observado del flujo completo. El renewal worker en
+      # origen extiende durante operación normal; este baseline cubre el caso
+      # "origen muerto durante todo el ciclo" antes de que renewal pueda actuar.
+      NODE_FRAGMENTSTORAGE_DEFAULT_CUSTODY_SECONDS: "7200"
+      # `node.custody-liveness.remote-base-urls` es Map<String,String> con keys
+      # (nodeId = "node-" + sha256_24chars) que llevan guiones; el relaxed
+      # binding por env var individual no las parsea limpio. Se inyecta vía
+      # SPRING_APPLICATION_JSON con el formato canónico de Spring Boot.
+      # `docker/scripts/generate-node-keys.sh` regenera claves Y reescribe los
+      # 3 hashes en este JSON automáticamente — no editar a mano.
+      SPRING_APPLICATION_JSON: '{"node":{"custody-liveness":{"remote-base-urls":{"node-7aa4d4c9584097fc53b37fa3":"http://node1:8080","node-5c668f2f31d7087dea839205":"http://node2:8080","node-fef0b654ad507aa6e44b2958":"http://node3:8080"}}}}'
+      # En docker compose el cluster sí distribuye, así que el flag pasa a true:
+      # PUT /files/entries/{id}/content fragmenta RS(3,2) y reparte entre los 3
+      # custodios; GET reconstruye con cualquier 2 de 3.
+      NODE_FILESYSTEM_DISTRIBUTION_ENABLED: "true"
+      # -1 = sin cap aplicativo. La RAM peak por upload sigue acotada por
+      # NODE_REEDSOLOMON_BLOCK_SIZE_BYTES × n × concurrent_uploads (no por
+      # tamaño del archivo, que se procesa en streaming bloque a bloque).
+      NODE_FILESYSTEM_DISTRIBUTION_MAX_BYTES: "-1"
+      NODE_REEDSOLOMON_DEFAULT_SCHEME_N: "3"
+      NODE_REEDSOLOMON_DEFAULT_SCHEME_K: "2"
+      NODE_REEDSOLOMON_DEFAULT_SCHEME_SYMBOL_SIZE: "4096"
+      NODE_REEDSOLOMON_BLOCK_SIZE_BYTES: "4194304"
+      # Auto-registro del nodo en los supernodos discovery al arrancar.
+      # Activado en cluster docker, desactivado en application.properties (modo
+      # dev local sin cluster).
+      NODE_DISCOVERY_SELF_REGISTER_ENABLED: "true"
+      # URL HTTP canónica del nodo persistida en el directorio del supernodo;
+      # los origines la usan para resolver discoveredNodeId -> baseUrl sin
+      # consultar la topology config local.
+      NODE_DISCOVERY_LOCAL_BASE_URL: http://node1:8080
+      # Tag global Micrometer expuesto en /actuator/prometheus. Sin esto, el
+      # default es "unknown" y todas las métricas llevan node_id="unknown".
+      MANAGEMENT_METRICS_TAGS_NODE_ID: node1
+    ports:
+      - "8081:8080"
+    volumes:
+      # Volume nombrado para que el sidecar promtail lo lea en read-only. Sin
+      # el sidecar (perfil observability apagado) el volume sigue acumulando
+      # logs persistentes hasta `docker compose down -v`.
+      - nodelogs1:/app/logs
+
+  node2:
+    build: .
+    container_name: distributed-node-2
+    depends_on:
+      postgres-node2:
+        condition: service_healthy
+    env_file:
+      - ./docker/env/node2.env
+    environment:
+      SERVER_PORT: 8080
+      MANAGEMENT_SERVER_PORT: 8181
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+      OTEL_TRACES_SAMPLER_ARG: "1.0"
+      NODE_PERSISTENCE_MODE: postgres
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-node2:5432/node
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_USERNAME: node
+      SPRING_DATASOURCE_PASSWORD: node
+      NODE_FEATURES_DISCOVERY_ENABLED: "true"
+      # node2 es el único supernodo discovery del cluster: mantiene la tabla
+      # local `discovery_candidate` con los 3 nodos y sirve POST
+      # /ops/discovery/query a los nodos comunes.
+      NODE_DISCOVERY_SUPERNODE_ROLE_ENABLED: "true"
+      NODE_FEATURES_NEGOTIATION_ENABLED: "true"
+      # Activamos la superficie /negotiate/** en docker dev para mantener smoke-e2e verde.
+      # Default en application.properties = false (producción).
+      NODE_FEATURES_NEGOTIATION_FORMAL_ENABLED: "true"
+      NODE_FEATURES_INGEST_ENABLED: "true"
+      # node2 también es el único tutor del cluster (recovery-enabled=true).
+      NODE_FEATURES_RECOVERY_ENABLED: "true"
+      NODE_TOPOLOGY_TUTORNODEID: tutor-node
+      NODE_TOPOLOGY_TUTORBASEURL: http://node2:8080
+      NODE_TOPOLOGY_DISCOVERYSUPERNODES: http://node2:8080
+      NODE_DISCOVERY_REQUIRE_TARGET_FAILURE_DOMAIN: "false"
+      NODE_DISCOVERY_REQUIRE_DISTRIBUTION_PLAN: "false"
+      NODE_FAILURE_DOMAIN: zone-b/rack-1
+      NODE_CUSTODY_LIVENESS_ENABLED: "true"
+      NODE_CUSTODY_LIVENESS_BASE_INTERVAL_SECONDS: "30"
+      NODE_CUSTODY_LIVENESS_FAST_RETRY_INTERVAL_SECONDS: "10"
+      NODE_CUSTODY_LIVENESS_ESCALATION_ATTEMPT_THRESHOLD: "3"
+      NODE_FRAGMENTSTORAGE_DEFAULT_CUSTODY_SECONDS: "7200"
+      NODE_CUSTODY_LIVENESS_ESCALATION_POLICY: "RETURN_TO_TUTOR"
+      SPRING_APPLICATION_JSON: '{"node":{"custody-liveness":{"remote-base-urls":{"node-7aa4d4c9584097fc53b37fa3":"http://node1:8080","node-5c668f2f31d7087dea839205":"http://node2:8080","node-fef0b654ad507aa6e44b2958":"http://node3:8080"}}}}'
+      NODE_FILESYSTEM_DISTRIBUTION_ENABLED: "true"
+      NODE_FILESYSTEM_DISTRIBUTION_MAX_BYTES: "-1"
+      NODE_REEDSOLOMON_DEFAULT_SCHEME_N: "3"
+      NODE_REEDSOLOMON_DEFAULT_SCHEME_K: "2"
+      NODE_REEDSOLOMON_DEFAULT_SCHEME_SYMBOL_SIZE: "4096"
+      NODE_REEDSOLOMON_BLOCK_SIZE_BYTES: "4194304"
+      NODE_DISCOVERY_SELF_REGISTER_ENABLED: "true"
+      NODE_DISCOVERY_LOCAL_BASE_URL: http://node2:8080
+      MANAGEMENT_METRICS_TAGS_NODE_ID: node2
+    ports:
+      - "8082:8080"
+    volumes:
+      - nodelogs2:/app/logs
+
+  node3:
+    build: .
+    container_name: distributed-node-3
+    depends_on:
+      postgres-node3:
+        condition: service_healthy
+    env_file:
+      - ./docker/env/node3.env
+    environment:
+      SERVER_PORT: 8080
+      MANAGEMENT_SERVER_PORT: 8181
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4318/v1/traces
+      OTEL_TRACES_SAMPLER_ARG: "1.0"
+      NODE_PERSISTENCE_MODE: postgres
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-node3:5432/node
+      SPRING_DATASOURCE_DRIVER_CLASS_NAME: org.postgresql.Driver
+      SPRING_DATASOURCE_USERNAME: node
+      SPRING_DATASOURCE_PASSWORD: node
+      NODE_FEATURES_DISCOVERY_ENABLED: "true"
+      # node3 es nodo común: solo cliente de discovery contra el supernodo.
+      NODE_DISCOVERY_SUPERNODE_ROLE_ENABLED: "false"
+      NODE_FEATURES_NEGOTIATION_ENABLED: "true"
+      # Activamos la superficie /negotiate/** en docker dev para mantener smoke-e2e verde.
+      # Default en application.properties = false (producción).
+      NODE_FEATURES_NEGOTIATION_FORMAL_ENABLED: "true"
+      NODE_FEATURES_INGEST_ENABLED: "true"
+      NODE_FEATURES_RECOVERY_ENABLED: "false"
+      NODE_TOPOLOGY_TUTORNODEID: tutor-node
+      NODE_TOPOLOGY_TUTORBASEURL: http://node2:8080
+      NODE_TOPOLOGY_DISCOVERYSUPERNODES: http://node2:8080
+      NODE_DISCOVERY_REQUIRE_TARGET_FAILURE_DOMAIN: "false"
+      NODE_DISCOVERY_REQUIRE_DISTRIBUTION_PLAN: "false"
+      NODE_FAILURE_DOMAIN: zone-c/rack-1
+      NODE_CUSTODY_LIVENESS_ENABLED: "true"
+      NODE_CUSTODY_LIVENESS_BASE_INTERVAL_SECONDS: "30"
+      NODE_CUSTODY_LIVENESS_FAST_RETRY_INTERVAL_SECONDS: "10"
+      NODE_CUSTODY_LIVENESS_ESCALATION_ATTEMPT_THRESHOLD: "3"
+      NODE_FRAGMENTSTORAGE_DEFAULT_CUSTODY_SECONDS: "7200"
+      NODE_CUSTODY_LIVENESS_ESCALATION_POLICY: "RETURN_TO_TUTOR"
+      SPRING_APPLICATION_JSON: '{"node":{"custody-liveness":{"remote-base-urls":{"node-7aa4d4c9584097fc53b37fa3":"http://node1:8080","node-5c668f2f31d7087dea839205":"http://node2:8080","node-fef0b654ad507aa6e44b2958":"http://node3:8080"}}}}'
+      NODE_FILESYSTEM_DISTRIBUTION_ENABLED: "true"
+      NODE_FILESYSTEM_DISTRIBUTION_MAX_BYTES: "-1"
+      NODE_REEDSOLOMON_DEFAULT_SCHEME_N: "3"
+      NODE_REEDSOLOMON_DEFAULT_SCHEME_K: "2"
+      NODE_REEDSOLOMON_DEFAULT_SCHEME_SYMBOL_SIZE: "4096"
+      NODE_REEDSOLOMON_BLOCK_SIZE_BYTES: "4194304"
+      NODE_DISCOVERY_SELF_REGISTER_ENABLED: "true"
+      NODE_DISCOVERY_LOCAL_BASE_URL: http://node3:8080
+      MANAGEMENT_METRICS_TAGS_NODE_ID: node3
+    ports:
+      - "8083:8080"
+    volumes:
+      - nodelogs3:/app/logs
+
+  # Stack de observabilidad opt-in vía profile "observability". `docker compose
+  # up` (sin --profile) mantiene el runtime de 3 nodos sin Prometheus/Grafana,
+  # para no contaminar CI smoke ni el runtime default.
+  #   GRAFANA_ADMIN_PASSWORD=localdev docker compose \
+  #     -f docker-compose.yml \                                
+  #     --profile observability up -d --build 
+  # Invariantes:
+  #   1. Prometheus scrape solo en la red docker sobre el puerto management
+  #      8181; ese puerto no se publica al host.
+  #   2. Grafana sin acceso anónimo ni signup; password admin obligatoria
+  #      (GRAFANA_ADMIN_PASSWORD=...).
+  #   3. Alertmanager arranca con receiver webhook placeholder; el operador
+  #      configura el canal real (Slack / PagerDuty / email) según política.
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: node-prometheus
+    profiles: ["observability"]
+    volumes:
+      - ./docker/observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/observability/prometheus/rules:/etc/prometheus/rules:ro
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.path=/prometheus
+      - --web.console.libraries=/etc/prometheus/console_libraries
+      - --web.console.templates=/etc/prometheus/consoles
+    ports:
+      - "9090:9090"
+    depends_on:
+      - node1
+      - node2
+      - node3
+
+  grafana:
+    image: grafana/grafana:11.2.2
+    container_name: node-grafana
+    profiles: ["observability"]
+    environment:
+      # docker compose interpola TODAS las envs del fichero al parsear, con
+      # independencia del profile activo. Default lenient (`:-`) en lugar de
+      # strict (`:?`) para que `docker compose up` sin --profile observability
+      # parsee aunque GRAFANA_ADMIN_PASSWORD no esté definida. Cuando se
+      # arranca el profile en producción, override obligatorio: el default es
+      # deliberadamente obvio para que se note.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-please-override-GRAFANA_ADMIN_PASSWORD-via-env}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_SECURITY_ALLOW_EMBEDDING: "false"
+    volumes:
+      - ./docker/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
+
+  alertmanager:
+    image: prom/alertmanager:v0.27.0
+    container_name: node-alertmanager
+    profiles: ["observability"]
+    volumes:
+      - ./docker/observability/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    command:
+      - --config.file=/etc/alertmanager/alertmanager.yml
+    ports:
+      - "9093:9093"
+
+  # Tempo recibe spans de los 3 nodos vía OTLP HTTP (4318) y expone query API
+  # en 3200 para Grafana. Storage local con retención corta.
+  tempo:
+    image: grafana/tempo:2.6.0
+    container_name: node-tempo
+    profiles: ["observability"]
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./docker/observability/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+    ports:
+      - "3200:3200"   # Tempo query API (Grafana)
+      - "4317:4317"   # OTLP gRPC
+      - "4318:4318"   # OTLP HTTP
+
+  # Loki + 3 sidecars Promtail (uno por nodo). Los 3 sidecars comparten el
+  # mismo promtail.yml con NODE_LABEL distinto vía `-config.expand-env=true`
+  # (1 config para mantener, 3 services con identidad propia). Label policy:
+  # solo job/node/level son labels; traceId/requestId/spanId quedan en el
+  # contenido para mantener cardinalidad acotada.
+  loki:
+    image: grafana/loki:3.2.0
+    container_name: node-loki
+    profiles: ["observability"]
+    command: ["-config.file=/etc/loki/loki.yml"]
+    volumes:
+      - ./docker/observability/loki/loki.yml:/etc/loki/loki.yml:ro
+    ports:
+      - "3100:3100"   # Loki HTTP API + readiness probe
+
+  promtail-node1:
+    image: grafana/promtail:3.2.0
+    container_name: node-promtail-1
+    profiles: ["observability"]
+    command:
+      - -config.file=/etc/promtail/config.yml
+      - -config.expand-env=true
+    environment:
+      NODE_LABEL: node1
+    volumes:
+      - nodelogs1:/var/log/node:ro
+      - ./docker/observability/promtail/promtail.yml:/etc/promtail/config.yml:ro
+    depends_on:
+      - loki
+      - node1
+
+  promtail-node2:
+    image: grafana/promtail:3.2.0
+    container_name: node-promtail-2
+    profiles: ["observability"]
+    command:
+      - -config.file=/etc/promtail/config.yml
+      - -config.expand-env=true
+    environment:
+      NODE_LABEL: node2
+    volumes:
+      - nodelogs2:/var/log/node:ro
+      - ./docker/observability/promtail/promtail.yml:/etc/promtail/config.yml:ro
+    depends_on:
+      - loki
+      - node2
+
+  promtail-node3:
+    image: grafana/promtail:3.2.0
+    container_name: node-promtail-3
+    profiles: ["observability"]
+    command:
+      - -config.file=/etc/promtail/config.yml
+      - -config.expand-env=true
+    environment:
+      NODE_LABEL: node3
+    volumes:
+      - nodelogs3:/var/log/node:ro
+      - ./docker/observability/promtail/promtail.yml:/etc/promtail/config.yml:ro
+    depends_on:
+      - loki
+      - node3
+
+# Volumes nombrados.
+#
+# - nodelogs{1,2,3}: logs de cada nodo, montados read-write por el nodo y read-only
+#   por el sidecar promtail correspondiente.
+# - node_postgres_data{1,2,3}: data dir Postgres de cada nodo. Antes
+#   eran volumes anónimos generados por Docker, lo que abría riesgo operacional
+#   real: `docker compose down -v` o `docker volume prune` borraban todo el cluster
+#   silenciosamente, y cualquier recreación de container postgres dejaba el volume
+#   viejo huérfano sin nombre legible. Nombrados explícitamente para que (a) cualquier
+#   borrado requiera intención explícita del operador y (b) `docker volume ls` muestre
+#   inventario legible (`node_node_postgres_data1` etc).
+volumes:
+  nodelogs1:
+  nodelogs2:
+  nodelogs3:
+  node_postgres_data1:
+  node_postgres_data2:
+  node_postgres_data3:

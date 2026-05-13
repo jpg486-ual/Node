@@ -1,0 +1,39 @@
+# Grafana provisioning: datasource Tempo.
+# El bloque tracesToLogsV2 queda activo apuntando a Loki: click en "Logs for this
+# span" en cualquier span de Tempo abre Grafana Explore con la query Loki
+# autofiltrada por traceId. El sentido inverso (log -> trace) lo provee
+# `derivedFields` en loki.yml.
+
+apiVersion: 1
+
+datasources:
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    isDefault: false
+    editable: false
+    jsonData:
+      httpMethod: GET
+      serviceMap:
+        datasourceUid: prometheus
+      # tracesToLogsV2 (modelo Grafana 10+) -- el viejo `tracesToLogs` esta
+      # deprecado. spanStartTimeShift/spanEndTimeShift amplian la ventana de
+      # busqueda en Loki +/-1m respecto al span para tolerar skew minimo entre
+      # clocks de containers.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-1m"
+        spanEndTimeShift: "1m"
+        # filterByTraceID=true hace que Grafana adjunte automaticamente
+        # |~ "tid=<traceId>" a la query Loki -- usa el line content
+        # filter porque traceId NO es label (label policy estricta de
+        # promtail.yml).
+        filterByTraceID: true
+        filterBySpanID: false
+        # tags: si una etiqueta de Tempo (ej. service.name) coincide con
+        # un label Loki, se anaden al filtro automaticamente.
+        tags:
+          - key: "service.name"
+            value: "job"

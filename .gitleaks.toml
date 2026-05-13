@@ -1,0 +1,112 @@
+# Baseline Gitleaks + allowlist firmado.
+#
+# Politica de allowlist (obligatoria por cada entrada [[allowlists]]):
+#
+#   1. <description> con:
+#      - Justificacion tecnica clara de por que el match NO es credencial real.
+#      - Fecha de firma en formato YYYY-MM-DD.
+#      - Owner (rol: Security / Arch / Backend).
+#      - Ventana de revision (default: 90 dias desde la fecha de firma).
+#   2. Scope por <paths> regex siempre que sea posible: una fixture solo es
+#      valida en su ruta especifica; cualquier aparicion en src/main/ o en
+#      otra ruta distinta seguiria fallando.
+#   3. Las entradas se revisan antes de cada release y se eliminan cuando la
+#      fixture desaparece (via borrado o cambio de ruta).
+#
+# Misma estructura de firma que .dependency-check/suppressions.xml y
+# que los dismissals de SpotBugs en tab Security.
+
+# minVersion fija la compatibilidad con la sintaxis `[[allowlists]]` plural
+# introducida en gitleaks 8.23. Binarios anteriores rechazan la config o la
+# aplican incompleta (detectado empiricamente en gitleaks-action@v2 bundleando
+# un binario antiguo).
+minVersion = "8.23.0"
+
+[extend]
+useDefault = true
+
+# -----------------------------------------------------------------------------
+# Fixtures de test publicas de NodeClient
+# -----------------------------------------------------------------------------
+
+[[allowlists]]
+description = '''
+Fixture de test publica de NodeClient en scripts/dev/start-client-test-node.sh
+(NodeClient2026!). No es credencial productiva; se genera al vuelo en entornos
+CI de prueba y su valor es publico en el repo. Firmado:
+2026-04-24 (Security). Revision: 2026-07-23.
+'''
+regexTarget = "match"
+regexes = ['''NodeClient2026!''']
+paths = ['''scripts/dev/start-client-test-node\.sh''']
+
+[[allowlists]]
+description = '''
+Fixture de ejemplo del flag --password en CLI help de
+docker/scripts/ops-readiness-degradation-check.sh (Passw0rd!). Cadena no
+correspondiente a ninguna credencial productiva; aparece exclusivamente en los
+bloques de help/usage del script. Firmado: 2026-04-24 (Security). Revision:
+2026-07-23.
+'''
+regexTarget = "match"
+regexes = ['''Passw0rd!''']
+paths = ['''docker/scripts/ops-readiness-degradation-check\.sh''']
+
+# -----------------------------------------------------------------------------
+# UUID v4 usados como X-Idempotency-Key en tests de admin-actions (Sprint 6+)
+# -----------------------------------------------------------------------------
+# Los tests de integracion de admin-actions declaran constantes
+# UUID estaticos para probar el contrato RFC 9562 de X-Idempotency-Key. Son
+# valores de test scopeados al proceso JUnit, nunca viajan a runtime ni se
+# persisten en ninguna base de datos productiva. La regla generic-api-key de
+# gitleaks los marca por el patron hex-largo asignado a identificador que
+# contiene "KEY"; es un falso positivo estructural conocido.
+
+[[allowlists]]
+description = '''
+UUIDs v4 usados como valor de X-Idempotency-Key en tests de integracion del
+framework admin-actions (constantes VALID_KEY / OTHER_VALID_KEY / KEY en
+src/test/java). Formato RFC 9562 estandar; son fixtures de test, no
+credenciales. Firmado: 2026-04-24 (Security). Revision: 2026-07-23.
+'''
+regexTarget = "match"
+regexes = ['''[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}''']
+paths = ['''src/test/java/.*\.java''']
+
+# -----------------------------------------------------------------------------
+# Documentacion markdown (docs/**.md)
+# -----------------------------------------------------------------------------
+# Los documentos pueden citan test vectors
+# literales. El tradeoff explicito: confiamos en que cualquier secreto real
+# que llegue a docs/** tambien aparecera en la ruta del codigo/config que lo
+# consume y el scan de esa ruta si lo detecta; mientras, el scan sobre docs/**
+# solo genera ruido sobre test vectors documentados. Scope limitado a .md para
+# que cualquier otro tipo de archivo caido por error en docs/ (yaml, properties,
+# pem) siga siendo escaneado.
+
+[[allowlists]]
+description = '''
+Documentacion markdown bajo docs/**.md.
+Firmado: 2026-04-24 (Security).
+Revision: 2026-07-23.
+'''
+paths = ['''docs/.*\.md''']
+
+# -----------------------------------------------------------------------------
+# JWT forjado de test en script de game day RBAC (eliminado en commit 281e320,
+# pero gitleaks sigue escaneando la historia)
+# -----------------------------------------------------------------------------
+
+[[allowlists]]
+description = '''
+JWT forjado deliberadamente invalido (signature literal "tampered-signature-bytes")
+usado por scripts/ops/gameday-rbac-attack-surface.sh para verificar que la
+superficie /admin rechaza con 401 cualquier bearer con firma incorrecta. No es
+credencial real: el campo signature es texto plano, nunca habria pasado la
+validacion HMAC. El script fue eliminado del repo en commit 281e320 pero permanece
+en la historia git, asi que gitleaks lo encuentra al escanear --source con git
+mode. Firmado: 2026-05-09 (Security). Revision: 2026-08-07.
+'''
+regexTarget = "match"
+regexes = ['''eyJhbGciOiJIUzI1NiJ9\.[A-Za-z0-9+/=._-]+\.tampered-signature-bytes''']
+paths = ['''scripts/ops/gameday-rbac-attack-surface\.sh''']

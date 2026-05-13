@@ -1,0 +1,65 @@
+# Promtail config compartida por los 3 sidecars (promtail-node1/2/3).
+# NODE_LABEL es env-var-expanded por `-config.expand-env=true` -- mismo fichero,
+# identidad propia por servicio docker. Lee /var/log/node/*.log montado read-only
+# desde el volume nodelogs N correspondiente.
+#
+# LABEL POLICY ESTRICTA (invariante operativa load-bearing):
+#   labels Loki  = job, node, level                  (cardinalidad acotada)
+#   line content = traceId, requestId, spanId,       (cardinalidad alta;
+#                  sessionId, decisionId, method,     filterables via
+#                  path, thread, logger, message)     | logfmt o |~ "tid=...")
+#
+# El log line tras la regex extraction se preserva intacto -- los campos
+# extraidos a variables NO se promueven a labels excepto los de baja
+# cardinalidad. Regla de oro de Loki (Grafana docs § "Best Practices: Labels"):
+# pocas labels, valores acotados, filtros via line content + parsers.
+
+server:
+  http_listen_port: 9080
+  log_level: info
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: node
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: node
+          node: ${NODE_LABEL}
+          __path__: /var/log/node/*.log
+
+    pipeline_stages:
+      # Stage 1: regex sobre el pattern logback. Los nombres de captura coinciden
+      # con los MDC keys originales. Sintaxis (?P<name>regex) = named capture
+      # group de RE2. NOTA: si logback-spring.xml cambia el pattern (orden,
+      # separadores o nombres de fields), actualizar tambien este regex --
+      # nada lo valida automaticamente.
+      #
+      # Pattern source (logback-spring.xml):
+      #   %d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36}
+      #   - rid=%X{requestId:-na} tid=%X{traceId:-} spid=%X{spanId:-}
+      #   sid=%X{sessionId:-na} did=%X{decisionId:-na}
+      #   method=%X{httpMethod:-na} path=%X{httpPath:-na} %msg %kvp%n
+      - regex:
+          expression: '^(?P<timestamp>\S+)\s+(?P<level>\S+)\s+\[(?P<thread>[^\]]+)\]\s+(?P<logger>\S+)\s+-\s+rid=(?P<requestId>\S+)\s+tid=(?P<traceId>\S*)\s+spid=(?P<spanId>\S*)\s+sid=(?P<sessionId>\S+)\s+did=(?P<decisionId>\S+)\s+method=(?P<httpMethod>\S+)\s+path=(?P<httpPath>\S+)\s+(?P<message>.*)$'
+
+      # Stage 2: timestamp del log (no del ingest). Loki ordena chunks por
+      # este timestamp; sin esto los logs aparecen reordenados por el
+      # arrival time de Promtail.
+      - timestamp:
+          source: timestamp
+          format: 2006-01-02T15:04:05.000Z07:00
+
+      # Stage 3: PROMOCION A LABEL solo de campos de cardinalidad acotada.
+      #   level: TRACE|DEBUG|INFO|WARN|ERROR|FATAL = 6 valores fijos.
+      # node y job ya son labels static (declarados arriba). traceId etc.
+      # NO se promueven -- quedan en line content y se queryean asi:
+      #   {job="node", node="node1", level="ERROR"} |~ "tid=abc123"
+      #   {job="node"} | logfmt | traceId="abc123"
+      - labels:
+          level:

@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!--
+    Baseline de supresiones para OWASP Dependency-Check.
+
+    Política de firma (obligatoria por cada entrada <suppress>):
+
+      1. <notes> con:
+         - Justificación técnica clara de por qué el CVE NO aplica a nuestro uso.
+         - Fecha de firma en formato YYYY-MM-DD.
+         - Owner (rol: Security / Arch / Backend).
+         - Ventana de revisión (default: 90 días desde la fecha de firma).
+      2. El <cve> o <vulnerabilityName> debe ser explícito. No se aceptan supresiones
+         por <sha1> o <packageUrl> sin justificación específica adicional en <notes>.
+      3. Las supresiones se revisan antes de cada release y se eliminan cuando el CVE
+         deja de aplicar (vía upgrade de la dependencia o cambio de uso).
+
+    Ejemplo de entrada válida:
+
+      <suppress>
+         <notes><![CDATA[
+            CVE-YYYY-NNNN aplica al transporte WebSocket de librería X, que no usamos
+            (sólo consumimos el API REST síncrono). Confirmado en análisis estático del
+            15-05-2026 por Security-Arch. Revisar en release posterior a 2026-08-13.
+         ]]></notes>
+         <packageUrl regex="true">^pkg:maven/org\.example/example@.*$</packageUrl>
+         <cve>CVE-YYYY-NNNN</cve>
+      </suppress>
+
+    A (25-04-2026) este baseline está vacío: el triage del primer scan
+    no reveló CVEs CVSS>=7 en la cadena de dependencias actual. Si un run posterior
+    introduce findings legítimos sin upgrade viable, la entrada se añade aquí
+    siguiendo la política firmada.
+    -->
+
+    <!--
+    Actualización 2026-04-25 — 2 entradas con expiry-trigger estructural.
+
+    Tras OpenTelemetry tracing el árbol de dependencias añadió
+    `opentelemetry-semconv:1.32.0` como transitiva de `micrometer-tracing-bridge-otel`.
+    Dependency-Check 12.1.3 reportó 2 CVEs sobre ese artifact:
+
+      - CVE-2026-39882 (CVSS 5.3) — OTLP HTTP exporter Go buffer sin cap
+      - CVE-2026-39883 (CVSS 7.3) — kenv PATH hijacking en BSD/Solaris
+
+    Verificación directa contra NVD API muestra que el CPE oficial es
+    `cpe:2.3:a:opentelemetry:opentelemetry:*:*:*:*:*:go:*:*` con `versionEndExcluding=1.43.0`
+    para CVE-2026-39882 y `versionStartIncluding=1.15.0 versionEndExcluding=1.43.0` para
+    CVE-2026-39883. El `target_sw=go` confirma que el alcance NVD es el SDK Go.
+
+    Acción tomada:
+      - kotlin-stdlib (CVE-2020-29582): bump 1.9.25 → 2.2.0 vía dependencyManagement
+        + exclusión de kotlin-stdlib-common (pom-only desde 2.1.0). Escapa
+        `vEnd=2.1.0` del CPE jetbrains:kotlin → CVE deja de aplicar
+        estructuralmente, sin necesidad de suppression. NO requiere entrada aquí.
+      - opentelemetry-semconv: SE MANTIENE en 1.32.0 (default transitivo desde
+        micrometer-tracing-bridge-otel 1.5.11). El primer intento bumpeó a 1.40.0
+        (latest stable publicada en Maven Central a 2026-04-25), pero 1.40.0 cae
+        dentro del rango `[1.36.0, 1.41.0)` de CVE-2026-29181 (CVSS 7.5, también
+        Go SDK FP) que NO aplicaba a 1.32.0. No existe versión Java 1.41.0+ donde
+        escapar 29181, así que el bump empeora el resultado del scanner.
+        Revertido a 1.32.0 → CVE-29181 desaparece estructuralmente por estar
+        bajo el `vStart=1.36.0`.
+
+    Las 2 entradas siguientes son suppressions con expiry-trigger ESTRUCTURAL: se
+    eliminan automáticamente cuando upstream publique `opentelemetry-semconv:1.43.0+`,
+    momento en que el bump cierra el FP de forma estructural sin necesidad de
+    suppression. Revisión calendarizada cada 90 días para verificar el trigger.
+    -->
+
+    <suppress>
+        <notes><![CDATA[
+            CVE-2026-39882 aplica al SDK Go de OpenTelemetry. CPE NVD oficial:
+            cpe:2.3:a:opentelemetry:opentelemetry:*:*:*:*:*:go:*:*
+            con versionEndExcluding=1.43.0 (verificado contra NVD API 2026-04-25).
+            El target_sw=go en el CPE acota explícitamente el alcance al SDK Go.
+            Nuestro artifact es Java SDK (io.opentelemetry.semconv:opentelemetry-semconv);
+            distinto producto, distinto language runtime, distinto codigo. Versión
+            1.32.0 (default transitivo desde micrometer-tracing-bridge-otel 1.5.11);
+            la rama Java aun no alcanza 1.43.0 que escaparia el rango.
+            Expiry-trigger estructural: ELIMINAR esta suppression cuando upstream
+            publique opentelemetry-semconv 1.43.0+ y bumpemos a esa version, momento
+            en que el match CPE deja de aplicar.
+            Revision calendarizada: 2026-07-24 (90d).
+            Firmado: 2026-04-25 (Security).
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.opentelemetry\.semconv/opentelemetry-semconv@.*$</packageUrl>
+        <cve>CVE-2026-39882</cve>
+    </suppress>
+
+    <suppress>
+        <notes><![CDATA[
+            CVE-2026-39883 aplica al SDK Go de OpenTelemetry sobre plataformas
+            BSD/Solaris (kenv command PATH hijacking). CPE NVD oficial:
+            cpe:2.3:a:opentelemetry:opentelemetry:*:*:*:*:*:go:*:*
+            con versionStartIncluding=1.15.0 versionEndExcluding=1.43.0.
+            Doble inaplicable a nuestro entorno: (a) artifact Java
+            (io.opentelemetry.semconv:opentelemetry-semconv) no Go; (b) runtime de
+            los nodos JVM/Tomcat sobre Linux Docker, no BSD ni Solaris. El
+            target_sw=go en el CPE acota el alcance al SDK Go.
+            Versión 1.32.0 (default transitivo desde micrometer-tracing-bridge-otel
+            1.5.11).
+            Expiry-trigger estructural: ELIMINAR cuando upstream publique
+            opentelemetry-semconv 1.43.0+ y bumpemos a esa version.
+            Revision calendarizada: 2026-07-24 (90d).
+            Firmado: 2026-04-25 (Security).
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.opentelemetry\.semconv/opentelemetry-semconv@.*$</packageUrl>
+        <cve>CVE-2026-39883</cve>
+    </suppress>
+</suppressions>

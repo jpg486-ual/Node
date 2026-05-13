@@ -1,0 +1,36 @@
+# Tempo config minimal: ingest OTLP (gRPC 4317 + HTTP 4318) + storage local +
+# retencion corta. Para escalar a S3/GCS/Azure, reescribir storage.trace.backend;
+# aqui dejamos `local` porque el stack docker compose es ephemeral por diseño.
+
+server:
+  http_listen_port: 3200
+  log_level: info
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: "0.0.0.0:4317"
+        http:
+          endpoint: "0.0.0.0:4318"
+
+ingester:
+  trace_idle_period: 10s
+  max_block_duration: 5m
+
+compactor:
+  compaction:
+    block_retention: 24h
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/traces
+    wal:
+      path: /var/tempo/wal
+
+# Metrics generator deshabilitado en TFG scale (no se necesita derivacion
+# trace -> metric local; los datos ya vienen de Prometheus). Si se activa,
+# anade overhead detectable en hot path de transferencia de fragmentos.

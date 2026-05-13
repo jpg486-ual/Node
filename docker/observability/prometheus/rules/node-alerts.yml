@@ -1,0 +1,140 @@
+# Reglas de alerta para el cluster de nodos.
+# Politica de recalibracion + mapping severity -> canal -> SLA: ver ../README.md.
+
+groups:
+  - name: node-discovery
+    interval: 30s
+    rules:
+      - alert: NodeDiscoveryQueuePendingWarn
+        expr: node_discovery_queue_pending > 5
+        for: 5m
+        labels:
+          severity: warn
+          domain: discovery
+        annotations:
+          summary: "Discovery retry queue pending elevada (>5 sostenido 5m)"
+          runbook: "docker/observability/README.md#discovery"
+      - alert: NodeDiscoveryQueuePendingCritical
+        expr: node_discovery_queue_pending > 10
+        for: 5m
+        labels:
+          severity: critical
+          domain: discovery
+        annotations:
+          summary: "Discovery retry queue pending critica (>10 sostenido 5m)"
+          runbook: "docker/observability/README.md#discovery"
+      - alert: NodeDiscoveryQueueFailedWarn
+        expr: node_discovery_queue_failed >= 1
+        for: 5m
+        labels:
+          severity: warn
+          domain: discovery
+        annotations:
+          summary: "Discovery retry queue failed presente (>=1 sostenido 5m)"
+          runbook: "docker/observability/README.md#discovery"
+      - alert: NodeDiscoveryQueueFailedCritical
+        expr: node_discovery_queue_failed >= 5
+        for: 5m
+        labels:
+          severity: critical
+          domain: discovery
+        annotations:
+          summary: "Discovery retry queue failed critica (>=5 sostenido 5m)"
+          runbook: "docker/observability/README.md#discovery"
+
+  - name: node-custody-liveness
+    interval: 30s
+    rules:
+      # Escalation diferida por tutor inalcanzable. El peer renueva el TTL del
+      # custody_fragment cuando el POST a /recovery/fragments falla (timeout / 4xx /
+      # 5xx no esperado) y emite un WARN con event=ESCALATION_DEFERRED_TUTOR_DOWN.
+      # La alerta agregada dispara cuando el deferral se sostiene >15min, indicando
+      # que el tutor del requester sigue caído (o las claves desincronizadas, o WAF
+      # bloqueando).
+      - alert: NodeCustodyEscalationDeferredSustained
+        expr: increase(node_custody_liveness_escalation_deferred_total[15m]) > 0
+        for: 15m
+        labels:
+          severity: warn
+          domain: liveness
+        annotations:
+          summary: "Custody escalation deferred (tutor unreachable) sostenido 15m — investigar tutor o whitelist"
+          runbook: "docker/observability/README.md#liveness"
+
+  # File integrity risk orchestrator. Los thresholds (0.34 warn / 0.5 critical) están
+  # alineados con node.recovery.recompose-threshold-fraction (default 0.34): superarlo
+  # dispara recompose automático del archivo. La alerta WARN avisa que el orchestrator
+  # está actuando con frecuencia; la CRITICAL indica que algunos archivos están por
+  # encima del threshold sin poder recomponer (posible FILE_UNRECOVERABLE).
+  - name: node-file-integrity
+    interval: 30s
+    rules:
+      - alert: NodeFileIntegrityRiskWarn
+        expr: max(node_recovery_file_integrity_risk_score_max) >= 0.34
+        for: 5m
+        labels:
+          severity: warn
+          domain: recovery
+        annotations:
+          summary: "File integrity risk score en WARN (>=0.34) sostenido 5m — recompose threshold cruzado"
+          runbook: "docker/observability/README.md#recovery"
+      - alert: NodeFileIntegrityRiskCritical
+        expr: max(node_recovery_file_integrity_risk_score_max) >= 0.50
+        for: 1m
+        labels:
+          severity: critical
+          domain: recovery
+        annotations:
+          summary: "File integrity risk score en CRITICAL (>=0.50) sostenido 1m — riesgo inminente FILE_UNRECOVERABLE"
+          runbook: "docker/observability/README.md#recovery"
+      # FILE_UNRECOVERABLE significa count(OK) < min-healthy: el archivo NO se puede recomponer
+      # ni siquiera teóricamente. Es event terminal y requiere intervención manual del operador
+      # del nodo (re-upload desde origen, restore desde backup externo, o aceptar pérdida).
+      - alert: NodeFileIntegrityUnrecoverable
+        expr: increase(node_recovery_file_integrity_unrecoverable_total[15m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+          domain: recovery
+        annotations:
+          summary: "File integrity: archivos marcados UNRECOVERABLE en últimos 15m — intervención manual requerida"
+          runbook: "docker/observability/README.md#recovery"
+      - alert: NodeFileIntegrityRecomposeFailureSustained
+        expr: increase(node_recovery_file_integrity_recompose_failure_total[10m]) > 0
+        for: 10m
+        labels:
+          severity: warn
+          domain: recovery
+        annotations:
+          summary: "File integrity: recompose failures sostenidos 10m — investigar peers / red / quota"
+          runbook: "docker/observability/README.md#recovery"
+
+  - name: node-recovery
+    interval: 30s
+    rules:
+      - alert: NodeRecoveryCleanupErrorRatioWarn
+        expr: |
+          increase(node_recovery_cleanup_run_error_total[10m])
+          /
+          clamp_min(increase(node_recovery_cleanup_run_total[10m]), 1)
+          > 0.005
+        for: 10m
+        labels:
+          severity: warn
+          domain: recovery
+        annotations:
+          summary: "Recovery cleanup error ratio > 0.5% sostenido 10m"
+          runbook: "docker/observability/README.md#recovery"
+      - alert: NodeRecoveryCleanupErrorRatioCritical
+        expr: |
+          increase(node_recovery_cleanup_run_error_total[10m])
+          /
+          clamp_min(increase(node_recovery_cleanup_run_total[10m]), 1)
+          > 0.02
+        for: 10m
+        labels:
+          severity: critical
+          domain: recovery
+        annotations:
+          summary: "Recovery cleanup error ratio > 2% sostenido 10m"
+          runbook: "docker/observability/README.md#recovery"

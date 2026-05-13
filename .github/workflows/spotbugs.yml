@@ -1,0 +1,76 @@
+name: SpotBugs + FindSecBugs (Java)
+
+# Workflow: SpotBugs 4.9.8.3 + FindSecBugs 1.14.0 (Java bytecode static analysis)
+#
+# Análisis estático puntual de bytecode añadido como segunda capa
+# de cobertura de código propio (complementaria a CodeQL). Cubre patrones
+# problemáticos a nivel bytecode (SpotBugs 400+ rules) + categorías de
+# seguridad OWASP (FindSecBugs ~120 rules). Report-only: los findings
+# aparecen en el tab Security del repo (cuando SARIF_UPLOAD_ENABLED=true)
+# para triage, no bloquean merge.
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+    paths:
+      - "src/**"
+      - "pom.xml"
+      - ".github/workflows/spotbugs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: spotbugs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: SpotBugs Analyze (Java bytecode)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Make Maven Wrapper Executable
+        run: chmod +x ./mvnw
+
+      - name: Compile sources (tests skipped)
+        run: ./mvnw -B -DskipTests compile
+
+      - name: Run SpotBugs + FindSecBugs (SARIF output)
+        run: ./mvnw -B spotbugs:spotbugs
+
+      - name: Upload SpotBugs report (SARIF + XML)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: spotbugs-report
+          path: |
+            target/spotbugsSarif.json
+            target/spotbugsXml.xml
+          if-no-files-found: warn
+
+      - name: Upload SARIF to GitHub Security
+        # Gate: SARIF_UPLOAD_ENABLED=true
+        if: always() && vars.SARIF_UPLOAD_ENABLED == 'true'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: target/spotbugsSarif.json
+          category: spotbugs

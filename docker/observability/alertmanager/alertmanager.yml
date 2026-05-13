@@ -1,0 +1,32 @@
+# Alertmanager config baseline.
+# Receiver webhook placeholder a proposito: el operador del nodo debe sustituir el endpoint
+# por canales reales (Slack/PagerDuty/email) en el momento de despliegue. El noop
+# local absorbe alertas sin romper el pipeline. Util para validar syntax + ver
+# que route/group_by/inhibit_rules funcionan.
+
+route:
+  group_by: ["alertname", "severity", "domain"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 1h
+  receiver: webhook-placeholder
+  routes:
+    - matchers:
+        - severity = "critical"
+      group_wait: 10s
+      receiver: webhook-placeholder
+
+receivers:
+  - name: webhook-placeholder
+    webhook_configs:
+      - url: "http://127.0.0.1:9999/noop"
+        send_resolved: false
+
+inhibit_rules:
+  # Al disparar la critical suprimimos la warn del mismo alertname/domain para
+  # reducir ruido (Google SRE, cap. "Practical Alerting": severity merging).
+  - source_matchers:
+      - severity = "critical"
+    target_matchers:
+      - severity = "warn"
+    equal: ["alertname", "domain"]

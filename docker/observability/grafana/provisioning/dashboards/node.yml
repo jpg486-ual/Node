@@ -1,0 +1,14 @@
+# Grafana provisioning: file provider para dashboards JSON bajo git.
+apiVersion: 1
+
+providers:
+  - name: node-observability
+    orgId: 1
+    folder: "Node"
+    type: file
+    disableDeletion: true
+    updateIntervalSeconds: 30
+    allowUiUpdates: false
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

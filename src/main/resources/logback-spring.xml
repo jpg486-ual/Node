@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+
+    <springProperty scope="context" name="LOG_DIR" source="node.logging.directory" defaultValue="./logs"/>
+    <springProperty scope="context" name="LOG_ARCHIVE_DIR" source="node.logging.archive-directory" defaultValue="./logs/archive"/>
+    <springProperty scope="context" name="LOG_FILE_NAME" source="node.logging.file-name" defaultValue="node.log"/>
+    <springProperty scope="context" name="LOG_MAX_FILE_SIZE" source="node.logging.max-file-size" defaultValue="20MB"/>
+    <springProperty scope="context" name="LOG_RETENTION_DAYS" source="node.logging.retention-days" defaultValue="30"/>
+    <springProperty scope="context" name="LOG_TOTAL_SIZE_CAP" source="node.logging.total-size-cap" defaultValue="5GB"/>
+    <springProperty scope="context" name="LOG_LEVEL_ROOT" source="node.logging.level.root" defaultValue="INFO"/>
+    <springProperty scope="context" name="LOG_LEVEL_APP" source="node.logging.level.app" defaultValue="INFO"/>
+
+    <!-- `tid` (traceId) y `spid` (spanId) poblados automaticamente por
+         Micrometer Tracing en MDC cuando hay un span activo. Si no hay span
+         (arranque, schedulers fuera de request), ambos quedan vacios tras el
+         default ':-'. El campo existente `sid` es sessionId de aplicacion; se
+         usa `spid` en lugar de `sid` para spanId para no colisionar. -->
+    <property name="APP_LOG_PATTERN"
+              value="%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} %-5level [%thread] %logger{36} - rid=%X{requestId:-na} tid=%X{traceId:-} spid=%X{spanId:-} sid=%X{sessionId:-na} did=%X{decisionId:-na} method=%X{httpMethod:-na} path=%X{httpPath:-na} %msg %kvp%n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${APP_LOG_PATTERN}</pattern>
+        </encoder>
+    </appender>
+
+    <appender name="ROLLING_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_DIR}/${LOG_FILE_NAME}</file>
+        <encoder>
+            <pattern>${APP_LOG_PATTERN}</pattern>
+        </encoder>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_ARCHIVE_DIR}/node.%d{yyyy-MM-dd}.%i.log.zip</fileNamePattern>
+            <maxFileSize>${LOG_MAX_FILE_SIZE}</maxFileSize>
+            <maxHistory>${LOG_RETENTION_DAYS}</maxHistory>
+            <totalSizeCap>${LOG_TOTAL_SIZE_CAP}</totalSizeCap>
+            <cleanHistoryOnStart>true</cleanHistoryOnStart>
+        </rollingPolicy>
+    </appender>
+
+    <logger name="es.ual.node" level="${LOG_LEVEL_APP}" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ROLLING_FILE"/>
+    </logger>
+
+    <root level="${LOG_LEVEL_ROOT}">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="ROLLING_FILE"/>
+    </root>
+
+</configuration>

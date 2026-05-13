@@ -1,0 +1,61 @@
+{
+  "version": "v1-2026-04-20",
+  "description": "Catalogo base de paneles operativos para endpoints /ops autenticados.",
+  "panels": [
+    {
+      "id": "discovery-queue-health",
+      "title": "Discovery queue health",
+      "endpoint": "/ops/discovery/metrics",
+      "fields": [
+        "discovery.queue.pending.count",
+        "discovery.queue.failed.count",
+        "discovery.queue.resolved.count",
+        "discovery.candidates.active.count"
+      ]
+    },
+    {
+      "id": "delivery-reliability",
+      "title": "Negotiation delivery reliability",
+      "endpoint": "/ops/negotiate/delivery/metrics",
+      "fields": [
+        "delivery.operations.total",
+        "delivery.operations.acked.total",
+        "delivery.operations.deadletter.total",
+        "delivery.operations.retry.total",
+        "delivery.ack.latency.ms",
+        "delivery.ack.latency.max.ms"
+      ]
+    },
+    {
+      "id": "liveness-consensus-fencing",
+      "title": "Custody liveness consensus and fencing",
+      "endpoint": "/ops/custody-liveness/metrics",
+      "fields": [
+        "custody.liveness.transition.unresponsive.total",
+        "custody.liveness.transition.escalated.total",
+        "custody.liveness.consensus.guard.allowed.total",
+        "custody.liveness.consensus.guard.blocked.no_quorum.total",
+        "custody.liveness.fencing.token.accepted.total",
+        "custody.liveness.fencing.token.rejected.stale.total"
+      ],
+      "signals": [
+        "consensus.current.status",
+        "risk.current.level",
+        "fencing.current.status",
+        "reissue.current.status"
+      ]
+    },
+    {
+      "id": "recovery-consistency-cleanup",
+      "title": "Recovery consistency and cleanup",
+      "endpoint": "/ops/recovery/consistency/metrics",
+      "fields": [
+        "recovery.consistency.compensation.total",
+        "recovery.consistency.reconciliation.total",
+        "recovery.cleanup.run.total",
+        "recovery.cleanup.run.error.total",
+        "recovery.cleanup.expired.deleted.total"
+      ]
+    }
+  ]
+}

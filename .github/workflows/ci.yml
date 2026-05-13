@@ -1,0 +1,371 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+  workflow_dispatch:
+    inputs:
+      run_smokes:
+        description: "Run Docker smoke tests (recovery + liveness + discovery chaos + client RS(3,3) + fragments-only negotiation)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detect-smoke-scope:
+    name: Detect Smoke-Relevant Changes
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    outputs:
+      recovery_liveness_related: ${{ steps.filter.outputs.recovery_liveness_related || steps.non_diff.outputs.recovery_liveness_related || 'false' }}
+      negotiation_related: ${{ steps.filter.outputs.negotiation_related || steps.non_diff.outputs.negotiation_related || 'false' }}
+      client_flow_related: ${{ steps.filter.outputs.client_flow_related || steps.non_diff.outputs.client_flow_related || 'false' }}
+      cve_related: ${{ steps.filter.outputs.cve_related || steps.non_diff.outputs.cve_related || 'false' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect Related Paths (push/pull_request)
+        id: filter
+        if: github.event_name == 'push'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            recovery_liveness_related:
+              - '.github/workflows/ci.yml'
+              - 'docker/**'
+              - 'docker-compose.yml'
+              - 'Dockerfile'
+              - 'src/main/java/es/ual/node/discovery/**'
+              - 'src/main/java/es/ual/node/custodyliveness/**'
+              - 'src/main/java/es/ual/node/recovery/**'
+              - 'src/main/java/es/ual/node/identitysecurity/**'
+              - 'src/main/java/es/ual/node/bootstrap/configuration/DiscoveryModuleConfiguration.java'
+              - 'src/main/java/es/ual/node/bootstrap/configuration/CustodyLivenessModuleConfiguration.java'
+              - 'src/main/java/es/ual/node/bootstrap/configuration/RecoveryModuleConfiguration.java'
+              - 'src/main/resources/db/migration/**'
+            negotiation_related:
+              - '.github/workflows/ci.yml'
+              - 'docker/**'
+              - 'docker-compose.yml'
+              - 'Dockerfile'
+              - 'scripts/dev/proof-full-negotiation-fragments.sh'
+              - 'src/main/java/es/ual/node/negotiation/**'
+              - 'src/main/java/es/ual/node/identitysecurity/**'
+              - 'src/main/java/es/ual/node/bootstrap/configuration/NegotiationModuleConfiguration.java'
+              - 'src/main/resources/db/migration/**'
+            client_flow_related:
+              - '.github/workflows/ci.yml'
+              - 'docker/**'
+              - 'docker-compose.yml'
+              - 'Dockerfile'
+              - 'scripts/dev/proof-n3k3-client-file.sh'
+              - 'src/main/java/es/ual/node/filesystem/**'
+              - 'src/main/java/es/ual/node/userregistration/**'
+              - 'src/main/java/es/ual/node/negotiation/**'
+              - 'src/main/java/es/ual/node/recovery/**'
+              - 'src/main/java/es/ual/node/discovery/**'
+              - 'src/main/java/es/ual/node/identitysecurity/**'
+              - 'src/main/java/es/ual/node/reedsolomon/**'
+              - 'src/main/resources/db/migration/**'
+            cve_related:
+              - 'pom.xml'
+              - '.dependency-check/**'
+              - '.github/workflows/ci.yml'
+
+      - name: Mark as related for schedule/workflow_dispatch
+        id: non_diff
+        if: github.event_name != 'push'
+        run: |
+          echo "recovery_liveness_related=true" >> "$GITHUB_OUTPUT"
+          echo "negotiation_related=true" >> "$GITHUB_OUTPUT"
+          echo "client_flow_related=true" >> "$GITHUB_OUTPUT"
+          echo "cve_related=true" >> "$GITHUB_OUTPUT"
+
+  build-and-test:
+    name: Build and Test (Maven)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Make Maven Wrapper Executable
+        run: chmod +x ./mvnw
+
+      - name: Verify Reed-Solomon Supply Chain
+        run: |
+          chmod +x ./scripts/ops/verify-reedsolomon-supply-chain.sh
+          ./scripts/ops/verify-reedsolomon-supply-chain.sh
+
+      - name: Run Unit and Integration Tests
+        run: ./mvnw -B test
+
+      - name: Upload Surefire Reports on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports
+          if-no-files-found: ignore
+
+  nodeclient-real-contract-tests:
+    name: NodeClient Real Contract (Node Real)
+    runs-on: macos-14
+    timeout-minutes: 45
+    needs:
+      - build-and-test
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Checkout Node
+        uses: actions/checkout@v4
+
+      - name: Checkout NodeClient
+        uses: actions/checkout@v4
+        with:
+          repository: jpg486-ual/NodeClient
+          token: ${{ secrets.NODECLIENT_REPO_TOKEN != '' && secrets.NODECLIENT_REPO_TOKEN || github.token }}
+          path: NodeClient
+
+      - name: Setup Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Make scripts executable
+        run: |
+          chmod +x ./mvnw
+          chmod +x ./scripts/dev/start-client-test-node.sh
+          chmod +x ./scripts/dev/smoke-client-login-sync-upload-download-logout.sh
+          chmod +x ./scripts/ops/verify-reedsolomon-supply-chain.sh
+
+      - name: Verify Reed-Solomon Supply Chain
+        run: ./scripts/ops/verify-reedsolomon-supply-chain.sh
+
+      - name: Start Node backend for real contract suite
+        env:
+          USE_H2: "true"
+          NODE_PORT: "8081"
+          NODE_LOG_FILE: ${{ github.workspace }}/logs/ci-nodeclient-real-node.log
+        run: ./scripts/dev/start-client-test-node.sh
+
+      - name: Run real smoke flow (login-sync-upload-download-logout)
+        env:
+          BOOTSTRAP_NODE: "false"
+          NODE_BASE_URL: "http://localhost:8081"
+          TEST_USERNAME: "tfg_client_test"
+          TEST_PASSWORD: "NodeClient2026!"
+        run: ./scripts/dev/smoke-client-login-sync-upload-download-logout.sh
+
+      - name: Run NodeClient real-node integration tests
+        working-directory: NodeClient
+        env:
+          REAL_NODE_INTEGRATION: "true"
+          REAL_NODE_BASE_URL: "http://localhost:8081"
+          REAL_NODE_USERNAME: "tfg_client_test"
+          REAL_NODE_PASSWORD: "NodeClient2026!"
+        run: swift test --filter NodeAPIClientRealNodeIntegrationTests
+
+      - name: Upload Node backend log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodeclient-real-node-log
+          path: logs/ci-nodeclient-real-node.log
+          if-no-files-found: ignore
+
+  docker-smokes:
+    name: Docker Smokes (Recovery + Liveness + Discovery Chaos)
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    needs:
+      - detect-smoke-scope
+      - build-and-test
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'schedule' && github.event.schedule == '30 3 * * 1') || (github.event_name == 'workflow_dispatch' && inputs.run_smokes) || (github.event_name == 'push' && needs.detect-smoke-scope.outputs.recovery_liveness_related == 'true'))
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Verify Reed-Solomon Supply Chain
+        run: |
+          chmod +x ./scripts/ops/verify-reedsolomon-supply-chain.sh
+          ./scripts/ops/verify-reedsolomon-supply-chain.sh
+
+      - name: Build Application Image Dependencies
+        run: ./mvnw -B -DskipTests package
+
+      - name: Make Smoke Scripts Executable
+        run: |
+          chmod +x ./docker/scripts/smoke-recovery-full-flow.sh
+          chmod +x ./docker/scripts/smoke-liveness-return-to-tutor.sh
+          chmod +x ./docker/scripts/smoke-discovery-liveness-chaos.sh
+          chmod +x ./docker/scripts/smoke-recovery-restore-mode.sh
+
+      - name: Run Recovery Full-Flow Smoke
+        run: ./docker/scripts/smoke-recovery-full-flow.sh
+
+      - name: Run Liveness Return-To-Tutor Smoke
+        run: ./docker/scripts/smoke-liveness-return-to-tutor.sh --bootstrap-recovery-full
+
+      - name: Run Discovery + Liveness Chaos Smoke
+        run: ./docker/scripts/smoke-discovery-liveness-chaos.sh
+
+      - name: Run Recovery Restore-Mode Smoke
+        run: ./docker/scripts/smoke-recovery-restore-mode.sh --no-build
+
+  docker-smoke-client-rs33:
+    name: Docker Smoke (Client RS(3,3) End-to-End)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    needs:
+      - detect-smoke-scope
+      - build-and-test
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'schedule' && github.event.schedule == '30 3 * * 1') || (github.event_name == 'workflow_dispatch' && inputs.run_smokes) || (github.event_name == 'push' && needs.detect-smoke-scope.outputs.client_flow_related == 'true'))
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Verify Reed-Solomon Supply Chain
+        run: |
+          chmod +x ./scripts/ops/verify-reedsolomon-supply-chain.sh
+          ./scripts/ops/verify-reedsolomon-supply-chain.sh
+
+      - name: Build Application Image Dependencies
+        run: ./mvnw -B -DskipTests package
+
+      - name: Make Client RS(3,3) Proof Script Executable
+        run: chmod +x ./scripts/dev/proof-n3k3-client-file.sh
+
+      - name: Run Client RS(3,3) End-to-End Proof
+        run: ./scripts/dev/proof-n3k3-client-file.sh
+
+      - name: Make Multi-Block Upload Smoke Executable
+        run: chmod +x ./docker/scripts/smoke-multi-block-upload.sh
+
+      - name: Run Multi-Block Upload Smoke
+        run: ./docker/scripts/smoke-multi-block-upload.sh --no-build
+
+  docker-smoke-fragments-only:
+    name: Docker Smoke (Negotiation Fragments-Only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    needs:
+      - detect-smoke-scope
+      - build-and-test
+    if: github.ref == 'refs/heads/main' && ((github.event_name == 'schedule' && github.event.schedule == '30 3 * * 1') || (github.event_name == 'workflow_dispatch' && inputs.run_smokes) || (github.event_name == 'push' && needs.detect-smoke-scope.outputs.negotiation_related == 'true'))
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Verify Reed-Solomon Supply Chain
+        run: |
+          chmod +x ./scripts/ops/verify-reedsolomon-supply-chain.sh
+          ./scripts/ops/verify-reedsolomon-supply-chain.sh
+
+      - name: Build Application Image Dependencies
+        run: ./mvnw -B -DskipTests package
+
+      - name: Make Fragments-Only Proof Script Executable
+        run: chmod +x ./scripts/dev/proof-full-negotiation-fragments.sh
+
+      - name: Run Fragments-Only Negotiation Proof
+        run: ./scripts/dev/proof-full-negotiation-fragments.sh
+
+  cve-scan:
+    name: CVE Scan (OWASP Dependency-Check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    needs:
+      - detect-smoke-scope
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '30 4 * * *') || (github.event_name == 'push' && needs.detect-smoke-scope.outputs.cve_related == 'true'))
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java 25
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Make Maven Wrapper Executable
+        run: chmod +x ./mvnw
+
+      - name: Cache OWASP DC NVD data
+        uses: actions/cache@v4
+        with:
+          path: ~/.dependency-check/data
+          key: owasp-dc-nvd-${{ runner.os }}-v12
+          restore-keys: owasp-dc-nvd-${{ runner.os }}-
+
+      - name: Run OWASP Dependency-Check (fail on CVSS>=7)
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: ./mvnw -B dependency-check:check -Dnvd.api.key="$NVD_API_KEY"
+
+      - name: Upload CVE report (HTML + JSON + SARIF)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dependency-check-report
+          path: target/dependency-check-report.*
+          if-no-files-found: warn
+
+      - name: Upload SARIF to GitHub Security
+        # Gate: activar creando la variable de repo SARIF_UPLOAD_ENABLED=true
+        if: always() && vars.SARIF_UPLOAD_ENABLED == 'true'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: target/dependency-check-report.sarif

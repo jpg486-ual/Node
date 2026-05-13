@@ -1,0 +1,38 @@
+{
+  "version": "v1-2026-04-20",
+  "severityExitCodes": {
+    "ok": 0,
+    "warn": 10,
+    "critical": 20
+  },
+  "rules": {
+    "discovery": {
+      "pendingQueueWarn": 5,
+      "pendingQueueCritical": 10,
+      "failedQueueWarn": 1,
+      "failedQueueCritical": 5
+    },
+    "delivery": {
+      "successRatioWarn": 0.995,
+      "successRatioCritical": 0.985,
+      "ackLatencyMsWarn": 2000,
+      "ackLatencyMsCritical": 5000
+    },
+    "liveness": {
+      "riskLevelWarn": [
+        "DANGER"
+      ],
+      "riskLevelCritical": [
+        "EMERGENCY"
+      ],
+      "consensusStatusWarn": [
+        "NO_QUORUM"
+      ],
+      "consensusStatusCritical": []
+    },
+    "recovery": {
+      "cleanupErrorRatioWarn": 0.005,
+      "cleanupErrorRatioCritical": 0.02
+    }
+  }
+}

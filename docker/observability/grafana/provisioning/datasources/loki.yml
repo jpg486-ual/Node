@@ -1,0 +1,32 @@
+# Grafana provisioning: datasource Loki + correlacion log -> trace.
+#
+# El bloque derivedFields define un boton "View trace" sobre cualquier log line
+# que contenga `tid=<32 hex chars>`. Click extrae el traceId del log y lo abre
+# en el datasource Tempo (uid: tempo). Cierre del circulo log -> trace que
+# complementa el tracesToLogsV2 del datasource Tempo (trace -> log).
+
+apiVersion: 1
+
+datasources:
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    isDefault: false
+    editable: false
+    jsonData:
+      # Limites de query y consistencia con Loki 3.x defaults.
+      timeout: 60
+      maxLines: 5000
+
+      # derivedFields: convierte coincidencias regex en links navegables.
+      # tid=<traceId> es el formato W3C que ya escribimos al MDC del logback pattern.
+      # `$${__value.raw}` (escape doble por la sintaxis de provisioning):
+      # Grafana sustituye con el contenido del primer capture group.
+      derivedFields:
+        - name: traceId
+          matcherRegex: "tid=([0-9a-f]{32})"
+          url: "$${__value.raw}"
+          datasourceUid: tempo
+          urlDisplayLabel: "View trace in Tempo"
