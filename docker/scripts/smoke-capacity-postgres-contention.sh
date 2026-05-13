@@ -253,9 +253,11 @@ REQUESTER_NODE1_ID="$(node_id_for_index 1)"
 REQUESTER_NODE2_ID="$(node_id_for_index 2)"
 REQUESTER_NODE3_ID="$(node_id_for_index 3)"
 
-echo "==> Step 1/8: seed compatible queued fragment in node2"
-"$DOCKER_BIN" exec node-postgres-2 psql -U node -d node -c \
-  "insert into queued_fragment(bucket_size, queued_at) values (4096, now());" >/dev/null
+# Step 1 (legacy del modulo ingest, retirado del scope) eliminado: el seed
+# sobre la tabla queued_fragment ya no es necesario porque la mecanica de
+# contencion concurrente se valida directamente sobre capacity_reservation
+# y capacity_counter (steps 2-8). La numeracion Step N/8 se mantiene para
+# preservar la trazabilidad con los logs historicos.
 
 NEGOTIATE_CONFIRM_PAYLOAD="$TMP_DIR/negotiate-confirm.json"
 /usr/bin/jq -n '{ targetSignature: "smoke-target-signature" }' > "$NEGOTIATE_CONFIRM_PAYLOAD"

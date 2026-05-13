@@ -296,11 +296,19 @@ RECOVERED_TEXT=$(/bin/cat "$NODE1_RECOVERY_BODY")
 [[ "$RECOVERED_TEXT" == "$PAYLOAD_TEXT" ]] || { echo "ERROR: recovered bytes mismatch"; exit 1; }
 
 echo "==> Step 4/5: bring node3 back online"
-# --wait espera al healthcheck del container antes de devolver el control, lo
-# que evita arrancar el polling HTTP contra un proceso que aun no ha iniciado
-# el listener de Tomcat. Con esto el wait_for_http subsiguiente solo cubre el
-# tiempo entre healthcheck OK y /actuator/health respondiendo.
-"$DOCKER_BIN" compose start --wait node3 >/dev/null
+"$DOCKER_BIN" compose start node3 >/dev/null
+# Espera explicita al healthcheck del container (portable a cualquier version
+# de docker compose: solo requiere docker inspect, no el flag --wait que es
+# v2.22+). Maximo 60s; si el container no esta healthy en ese tiempo, sigue
+# adelante y deja que wait_for_http capture el fallo con mejor diagnostico.
+container_name="distributed-node-3"
+for _ in $(/usr/bin/seq 1 30); do
+  health=$("$DOCKER_BIN" inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$container_name" 2>/dev/null || echo "")
+  if [[ "$health" == "healthy" || "$health" == "none" ]]; then
+    break
+  fi
+  /bin/sleep 2
+done
 wait_for_http "http://localhost:8083" "node3 (restarted)"
 
 echo "==> Step 5/5: node3 recovers bytes from node2 tutor and verifies"
