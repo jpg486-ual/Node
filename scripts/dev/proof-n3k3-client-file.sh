@@ -426,14 +426,15 @@ JSON
   confirm_code="$(signed_call 1 POST "$target_base_url" "/negotiate/$agreement_id/confirm" "$confirm_file" "$confirm_body")"
   [[ "$confirm_code" == "200" ]] || { echo "ERROR: negotiate confirm ($target_label) HTTP $confirm_code"; cat "$confirm_body"; exit 1; }
 
+  # El campo transferAuthorizationToken se persiste internamente pero ya no se
+  # expone en el payload JSON (NegotiationAgreementPayload.fromDomain lo fuerza
+  # a null; vestigio del modelo simetrico abierto). Solo validamos el status.
   python3 - <<PY
 import json
 from pathlib import Path
 payload = json.loads(Path("$confirm_body").read_text())
 if payload.get("status") != "CONFIRMED":
     raise SystemExit("ERROR: negotiation $target_label not CONFIRMED")
-if not payload.get("transferAuthorizationToken"):
-    raise SystemExit("ERROR: negotiation $target_label has no transfer token")
 PY
 
   echo "  - $target_label confirmed: $agreement_id"

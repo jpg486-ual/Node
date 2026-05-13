@@ -85,7 +85,10 @@ fi
 wait_for_http() {
   local base_url="$1"
   local label="$2"
-  local attempts=45
+  # 60 intentos x 2s = 120s max. Margen amplio para CI saturado: Spring Boot
+  # 3.5 + connect-pool a Postgres puede superar facilmente los 60s en runners
+  # compartidos cuando arranca un container restartado tras un compose start.
+  local attempts=60
 
   for _ in $(/usr/bin/seq 1 "$attempts"); do
     local code
@@ -293,7 +296,11 @@ RECOVERED_TEXT=$(/bin/cat "$NODE1_RECOVERY_BODY")
 [[ "$RECOVERED_TEXT" == "$PAYLOAD_TEXT" ]] || { echo "ERROR: recovered bytes mismatch"; exit 1; }
 
 echo "==> Step 4/5: bring node3 back online"
-"$DOCKER_BIN" compose start node3 >/dev/null
+# --wait espera al healthcheck del container antes de devolver el control, lo
+# que evita arrancar el polling HTTP contra un proceso que aun no ha iniciado
+# el listener de Tomcat. Con esto el wait_for_http subsiguiente solo cubre el
+# tiempo entre healthcheck OK y /actuator/health respondiendo.
+"$DOCKER_BIN" compose start --wait node3 >/dev/null
 wait_for_http "http://localhost:8083" "node3 (restarted)"
 
 echo "==> Step 5/5: node3 recovers bytes from node2 tutor and verifies"
