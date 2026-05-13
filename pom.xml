@@ -272,6 +272,12 @@
 				<artifactId>dependency-check-maven</artifactId>
 				<version>${owasp.dependency.check.plugin.version}</version>
 				<configuration>
+					<!-- El default del plugin (v12.x) es ${project.reporting.outputDirectory}
+					     = target/site, lo que descoloca los uploads de los workflows que
+					     buscan en target/ directamente. Forzamos el output al directorio
+					     canonico de build para alinear con los CI artifacts y con cualquier
+					     invocacion manual posterior. -->
+					<outputDirectory>${project.build.directory}</outputDirectory>
 					<failBuildOnCVSS>7</failBuildOnCVSS>
 					<suppressionFile>${project.basedir}/.dependency-check/suppressions.xml</suppressionFile>
 					<formats>
