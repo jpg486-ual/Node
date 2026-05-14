@@ -12,6 +12,14 @@ on:
         required: false
         default: false
         type: boolean
+  schedule:
+    # cve-scan diario (04:30 UTC ≈ 06:30 ES verano / 05:30 ES invierno). Solo
+    # dispara el job cve-scan: el resto de jobs tiene su propio cron o se
+    # condicionan a push/workflow_dispatch en su `if:`.
+    - cron: '30 4 * * *'
+    # docker-smokes semanal (lunes 03:30 UTC). Dispara los jobs docker-smokes y
+    # docker-smoke-client-rs33 segun la condicion de su `if:`.
+    - cron: '30 3 * * 1'
 
 permissions:
   contents: read
