@@ -23,8 +23,8 @@ import org.springframework.stereotype.Component;
  *   <li>Los headers W3C se añaden DESPUÉS de la construcción del canonical payload de firma,
  *       confirmar mirando los 3 callers: el canonical payload de {@code
  *       RequestSignatureValidationService.buildCanonicalPayload} se calcula con (method, path,
- *       body, nonce, timestamp) y NO incluye headers HTTP, por lo que esta inyección no rompe la
- *       firma.
+ *       queryString, nonce, timestamp) y NO incluye headers HTTP ni el cuerpo, por lo que esta
+ *       inyección no rompe la firma.
  *   <li>Si no hay span activo en el contexto actual, {@link TextMapPropagator#inject} es no-op (no
  *       añade cabeceras), lo cual permite ejecutar los 3 clients fuera de un scope traceable sin
  *       errores.
