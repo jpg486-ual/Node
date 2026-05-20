@@ -108,4 +108,49 @@
         <packageUrl regex="true">^pkg:maven/io\.opentelemetry\.semconv/opentelemetry-semconv@.*$</packageUrl>
         <cve>CVE-2026-39883</cve>
     </suppress>
+
+    <!--
+    Actualización 2026-05-20 — supresión por CPE-confusion en micrometer-registry-prometheus.
+
+    OWASP Dependency-Check 12.1.3 asoció el artefacto
+    `io.micrometer:micrometer-registry-prometheus@1.15.11` (librería cliente Java
+    que expone métricas Micrometer en formato Prometheus text) al CPE
+    `cpe:2.3:a:prometheus:prometheus:1.15.11:*` (Prometheus server, aplicación
+    Go upstream de prometheus.io). Producto, vendor y runtime distintos: la
+    única coincidencia es el token "prometheus" en el artifactId. Prometheus
+    server real va por v2.x / v3.x; no existe upstream "Prometheus 1.15.11".
+    La versión 1.15.11 es la cadencia de Micrometer (managed por Spring Boot
+    BOM 3.5.14).
+
+    Suprimimos por <cpe> y no por <cve> porque el match CPE completo es
+    incorrecto: cualquier CVE futuro asociado a prometheus:prometheus arrastrado
+    via este artifact comparte la misma raíz de confusión. Suprimirlo a nivel
+    CPE evita tener que firmar entradas nuevas con cada release de Prometheus
+    server.
+    -->
+
+    <suppress>
+        <notes><![CDATA[
+            CVE-2026-42154 (CVSS 7.5) está asociado al CPE
+            cpe:2.3:a:prometheus:prometheus:* (Prometheus monitoring server,
+            aplicación Go de prometheus.io). Nuestro artefacto es
+            io.micrometer:micrometer-registry-prometheus, librería cliente Java
+            que produce métricas de Micrometer en formato Prometheus text;
+            producto, vendor y runtime distintos. La versión 1.15.11 es la
+            cadencia de Micrometer (managed por Spring Boot BOM 3.5.14);
+            Prometheus server upstream va por v2.x / v3.x y no existe "1.15.11"
+            en sus releases. Confusion de CPE clara en el matcher de OWASP DC
+            por coincidencia del token "prometheus" en el artifactId.
+            Supresion a nivel CPE (no CVE) porque el match estructural es
+            incorrecto: cualquier CVE futuro sobre prometheus:prometheus
+            arrastrado por el matcher comparte la misma raíz de confusión.
+            Expiry-trigger estructural: ELIMINAR cuando OWASP DC corrija el
+            CPE matching o cuando io.micrometer publique el registry bajo
+            coordenadas que no choquen con prometheus:prometheus.
+            Revision calendarizada: 2026-08-18 (90d).
+            Firmado: 2026-05-20 (Security).
+        ]]></notes>
+        <packageUrl regex="true">^pkg:maven/io\.micrometer/micrometer-registry-prometheus@.*$</packageUrl>
+        <cpe>cpe:/a:prometheus:prometheus</cpe>
+    </suppress>
 </suppressions>
