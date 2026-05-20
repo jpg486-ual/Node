@@ -326,6 +326,13 @@ public class RecoveryModuleConfiguration {
    * Requiere {@link es.ual.node.recovery.ports.out.FileRecomposePort} disponible (filesystem
    * distribution + custody-liveness enabled). Los eventos se materializan en counters Prometheus
    * (vía {@link RecoveryObservabilityService}) + logs estructurados; no se persisten en SQL.
+   *
+   * <p>Nota de diseño: la clase vive en el paquete {@code recovery} por afinidad de dominio
+   * (decidir que un archivo está en riesgo y recomponerlo es lógica de recuperación), pero su
+   * activación se gobierna con {@code node.custody-liveness.enabled}, NO con {@code
+   * node.features.recovery-enabled}: el orchestrator depende de los datos de vivacidad de custodios
+   * que produce el subsistema custody-liveness para poder evaluar el riesgo. Ubicación en el
+   * paquete y condición de activación son ejes independientes.
    */
   @Bean
   @ConditionalOnProperty(prefix = "node.custody-liveness", name = "enabled", havingValue = "true")
