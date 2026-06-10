@@ -1,6 +1,7 @@
 # Override de DEMO/VÍDEO — acelera la vivacidad de custodia para que la
 # escalation RETURN_TO_TUTOR ocurra en ~20-30 s (en vez de ~60-90 s) y sea
-# filmable en un corte limpio.
+# filmable en un corte limpio, y activa el modo RESTORE en node1 (el compose
+# base es un clúster normal, para que las smokes/proofs no dependan de RESTORE).
 #
 # Uso (siempre junto al compose principal):
 #   GRAFANA_ADMIN_PASSWORD=localdev docker compose \
@@ -8,20 +9,31 @@
 #     --profile observability up -d --build
 #
 # NO usar en producción: thresholds agresivos pensados solo para grabar.
+
+# Thresholds compartidos por los 3 nodos (mapa de env, fusionado con <<:).
+x-demo-env: &demo-env
+  NODE_CUSTODY_LIVENESS_BASE_INTERVAL_SECONDS: "10"
+  NODE_CUSTODY_LIVENESS_FAST_RETRY_INTERVAL_SECONDS: "5"
+  NODE_CUSTODY_LIVENESS_ESCALATION_ATTEMPT_THRESHOLD: "2"
+  NODE_DISCOVERY_RENEWAL_INTERVAL_MILLIS: "15000"
+  # Freshness corto a propósito: cuando node1 cae, el contador de candidatos del
+  # directorio baja 3→2 (señal visible para el operador en observabilidad). La fiabilidad
+  # del recovery NO se apoya en mantener viva la entrada del nodo muerto, sino en que el
+  # guion espere a que node1 se RE-REGISTRE (contador de vuelta a 3) antes de reconstruir
+  # (ver sección 7 de demo.sh): así el RESTORE_REUPLOAD encuentra los 3 custodios.
+  NODE_DISCOVERY_DIRECTORY_FRESHNESS_SECONDS: "30"
+
 services:
-  node1: &demo-thresholds
+  node1:
     environment:
-      NODE_CUSTODY_LIVENESS_BASE_INTERVAL_SECONDS: "10"
-      NODE_CUSTODY_LIVENESS_FAST_RETRY_INTERVAL_SECONDS: "5"
-      NODE_CUSTODY_LIVENESS_ESCALATION_ATTEMPT_THRESHOLD: "2"
-      NODE_DISCOVERY_RENEWAL_INTERVAL_MILLIS: "15000"
-      # Freshness corto a propósito: cuando node1 cae, el contador de candidatos del
-      # directorio baja 3→2 (señal visible para el operador en observabilidad). La fiabilidad
-      # del recovery NO se apoya en mantener viva la entrada del nodo muerto, sino en que el
-      # guion espere a que node1 se RE-REGISTRE (contador de vuelta a 3) antes de reconstruir
-      # (ver sección 7 de demo.sh): así el RESTORE_REUPLOAD encuentra los 3 custodios.
-      NODE_DISCOVERY_DIRECTORY_FRESHNESS_SECONDS: "30"
+      <<: *demo-env
+      # node1 arranca en modo RESTORE SOLO en la demo (para que, al resucitar tras la
+      # purga, reconstruya sus fragmentos desde el tutor). En el compose base node1 es
+      # un origen normal, por eso el flag vive aquí y no en docker-compose.yml.
+      NODE_RECOVERY_MODE: RESTORE
   node2:
-    <<: *demo-thresholds
+    environment:
+      <<: *demo-env
   node3:
-    <<: *demo-thresholds
+    environment:
+      <<: *demo-env

@@ -61,7 +61,8 @@ services:
     environment:
       SERVER_PORT: 8080
       NODE_RECOVERY_RESTORE_STRATEGY: BYTES_FROM_TUTOR
-      NODE_RECOVERY_MODE: RESTORE
+      # NODE_RECOVERY_MODE: RESTORE
+      
       # Puerto management (Actuator + /actuator/prometheus) aislado del socket
       # principal. Solo accesible dentro de la red docker compose; el host solo
       # ve 8080 -> 808{1,2,3}.
