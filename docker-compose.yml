@@ -61,7 +61,7 @@ services:
     environment:
       SERVER_PORT: 8080
       NODE_RECOVERY_RESTORE_STRATEGY: BYTES_FROM_TUTOR
-      # NODE_RECOVERY_MODE: RESTORE
+      NODE_RECOVERY_MODE: RESTORE
       # Puerto management (Actuator + /actuator/prometheus) aislado del socket
       # principal. Solo accesible dentro de la red docker compose; el host solo
       # ve 8080 -> 808{1,2,3}.
@@ -115,7 +115,7 @@ services:
       # SPRING_APPLICATION_JSON con el formato canónico de Spring Boot.
       # `docker/scripts/generate-node-keys.sh` regenera claves Y reescribe los
       # 3 hashes en este JSON automáticamente — no editar a mano.
-      SPRING_APPLICATION_JSON: '{"node":{"custody-liveness":{"remote-base-urls":{"node-7aa4d4c9584097fc53b37fa3":"http://node1:8080","node-5c668f2f31d7087dea839205":"http://node2:8080","node-fef0b654ad507aa6e44b2958":"http://node3:8080"}}}}'
+      SPRING_APPLICATION_JSON: '{"node":{"custody-liveness":{"remote-base-urls":{"node-5d0d8f4975dc3a419525131a":"http://node1:8080","node-863b8a56aba697b6677e0399":"http://node2:8080","node-5f1057cfb87b8822ac390758":"http://node3:8080"}}}}'
       # En docker compose el cluster sí distribuye, así que el flag pasa a true:
       # PUT /files/entries/{id}/content fragmenta RS(3,2) y reparte entre los 3
       # custodios; GET reconstruye con cualquier 2 de 3.
@@ -189,7 +189,7 @@ services:
       NODE_CUSTODY_LIVENESS_ESCALATION_ATTEMPT_THRESHOLD: "3"
       NODE_FRAGMENTSTORAGE_DEFAULT_CUSTODY_SECONDS: "7200"
       NODE_CUSTODY_LIVENESS_ESCALATION_POLICY: "RETURN_TO_TUTOR"
-      SPRING_APPLICATION_JSON: '{"node":{"custody-liveness":{"remote-base-urls":{"node-7aa4d4c9584097fc53b37fa3":"http://node1:8080","node-5c668f2f31d7087dea839205":"http://node2:8080","node-fef0b654ad507aa6e44b2958":"http://node3:8080"}}}}'
+      SPRING_APPLICATION_JSON: '{"node":{"custody-liveness":{"remote-base-urls":{"node-5d0d8f4975dc3a419525131a":"http://node1:8080","node-863b8a56aba697b6677e0399":"http://node2:8080","node-5f1057cfb87b8822ac390758":"http://node3:8080"}}}}'
       NODE_FILESYSTEM_DISTRIBUTION_ENABLED: "true"
       NODE_FILESYSTEM_DISTRIBUTION_MAX_BYTES: "-1"
       NODE_REEDSOLOMON_DEFAULT_SCHEME_N: "3"
@@ -243,7 +243,7 @@ services:
       NODE_CUSTODY_LIVENESS_ESCALATION_ATTEMPT_THRESHOLD: "3"
       NODE_FRAGMENTSTORAGE_DEFAULT_CUSTODY_SECONDS: "7200"
       NODE_CUSTODY_LIVENESS_ESCALATION_POLICY: "RETURN_TO_TUTOR"
-      SPRING_APPLICATION_JSON: '{"node":{"custody-liveness":{"remote-base-urls":{"node-7aa4d4c9584097fc53b37fa3":"http://node1:8080","node-5c668f2f31d7087dea839205":"http://node2:8080","node-fef0b654ad507aa6e44b2958":"http://node3:8080"}}}}'
+      SPRING_APPLICATION_JSON: '{"node":{"custody-liveness":{"remote-base-urls":{"node-5d0d8f4975dc3a419525131a":"http://node1:8080","node-863b8a56aba697b6677e0399":"http://node2:8080","node-5f1057cfb87b8822ac390758":"http://node3:8080"}}}}'
       NODE_FILESYSTEM_DISTRIBUTION_ENABLED: "true"
       NODE_FILESYSTEM_DISTRIBUTION_MAX_BYTES: "-1"
       NODE_REEDSOLOMON_DEFAULT_SCHEME_N: "3"

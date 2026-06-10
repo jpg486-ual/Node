@@ -1,0 +1,27 @@
+# Override de DEMO/VÍDEO — acelera la vivacidad de custodia para que la
+# escalation RETURN_TO_TUTOR ocurra en ~20-30 s (en vez de ~60-90 s) y sea
+# filmable en un corte limpio.
+#
+# Uso (siempre junto al compose principal):
+#   GRAFANA_ADMIN_PASSWORD=localdev docker compose \
+#     -f docker-compose.yml -f docker-compose.demo.yml \
+#     --profile observability up -d --build
+#
+# NO usar en producción: thresholds agresivos pensados solo para grabar.
+services:
+  node1: &demo-thresholds
+    environment:
+      NODE_CUSTODY_LIVENESS_BASE_INTERVAL_SECONDS: "10"
+      NODE_CUSTODY_LIVENESS_FAST_RETRY_INTERVAL_SECONDS: "5"
+      NODE_CUSTODY_LIVENESS_ESCALATION_ATTEMPT_THRESHOLD: "2"
+      NODE_DISCOVERY_RENEWAL_INTERVAL_MILLIS: "15000"
+      # Freshness corto a propósito: cuando node1 cae, el contador de candidatos del
+      # directorio baja 3→2 (señal visible para el operador en observabilidad). La fiabilidad
+      # del recovery NO se apoya en mantener viva la entrada del nodo muerto, sino en que el
+      # guion espere a que node1 se RE-REGISTRE (contador de vuelta a 3) antes de reconstruir
+      # (ver sección 7 de demo.sh): así el RESTORE_REUPLOAD encuentra los 3 custodios.
+      NODE_DISCOVERY_DIRECTORY_FRESHNESS_SECONDS: "30"
+  node2:
+    <<: *demo-thresholds
+  node3:
+    <<: *demo-thresholds

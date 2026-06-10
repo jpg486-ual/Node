@@ -309,7 +309,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "rate(node_custody_liveness_transition_unresponsive_total[5m])",
+          "expr": "rate(node_custody_liveness_transition_unresponsive_total[1m])",
           "legendFormat": "transition unresponsive {{instance}}",
           "refId": "A"
         },
@@ -318,12 +318,12 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "rate(node_custody_liveness_transition_escalated_total[5m])",
+          "expr": "rate(node_custody_liveness_transition_escalated_total[1m])",
           "legendFormat": "transition escalated {{instance}}",
           "refId": "B"
         }
       ],
-      "title": "Liveness transitions (rate 5m)",
+      "title": "Liveness transitions (rate 1m)",
       "type": "timeseries"
     },
     {
@@ -428,7 +428,7 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "rate(node_recovery_consistency_reconciliation_total[5m])",
+          "expr": "rate(node_recovery_consistency_reconciliation_total[1m])",
           "legendFormat": "reconciliation {{instance}}",
           "refId": "A"
         },
@@ -437,26 +437,26 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "expr": "rate(node_recovery_consistency_compensation_total[5m])",
+          "expr": "rate(node_recovery_consistency_compensation_total[1m])",
           "legendFormat": "compensation {{instance}}",
           "refId": "B"
         },
         {
-          "expr": "sum(rate(node_recovery_file_integrity_recompose_total[5m]))",
+          "expr": "sum(rate(node_recovery_file_integrity_recompose_total[1m]))",
           "legendFormat": "file integrity recompose/s",
           "refId": "C"
         },
         {
-          "expr": "sum(rate(node_recovery_file_integrity_unrecoverable_total[5m]))",
+          "expr": "sum(rate(node_recovery_file_integrity_unrecoverable_total[1m]))",
           "legendFormat": "file integrity unrecoverable/s",
           "refId": "D"
         }
       ],
-      "title": "Recovery rates (5m)",
+      "title": "Recovery rates (1m)",
       "type": "timeseries"
     }
   ],
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 39,
   "tags": [
     "node",

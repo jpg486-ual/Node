@@ -178,6 +178,23 @@ opcional, *discovery* dinámico y *snapshot* de observabilidad):
 ./scripts/dev/demo-tfg.sh --with-chaos --keep-running
 ```
 
+**Demostración en vivo del arco de recuperación** — la forma más directa de *ver* la
+promesa del sistema: un archivo sobrevive a la **pérdida total** de su nodo origen. El guion
+`demo.sh` **es** la demostración: sube un archivo, **purga por
+completo el nodo origen** (contenedor, base de datos y logs), muestra al sistema autodefenderse
+(*return-to-tutor*, observable en la Grafana de fondo) y cierra con el cliente descargando el
+archivo con **SHA-256 idéntico, bit a bit**. Emite por pantalla las *queries* y llamadas reales
+que ejecuta, como apoyo de locución.
+
+```bash
+# Clúster con liveness acelerada para la demo + observabilidad
+GRAFANA_ADMIN_PASSWORD=localdev docker compose \
+  -f docker-compose.yml -f docker-compose.demo.yml --profile observability up -d --build
+
+./scripts/dev/demo.sh          # en vivo: pausa entre secciones (tú marcas el ritmo)
+./scripts/dev/demo.sh --auto   # sin pausas: ensayo / cronometraje (~50 s end-to-end)
+```
+
 **Smokes Docker** sobre el clúster de tres nodos, agrupados por
 dominio funcional (discovery, custody/liveness, recovery,
 capacidad, particiones, observabilidad). Inventario completo en
@@ -226,8 +243,9 @@ gitleaks git --staged --redact --config .gitleaks.toml --no-banner
 - [`docker/scripts/`](docker/scripts/) — *smokes* sobre el
   clúster (E2E firmado, *discovery* dinámico, *recovery* bytes,
   *liveness*, particiones, capacidad).
-- [`scripts/dev/`](scripts/dev/) — demo TFG, *proofs* de
-  flujos y arranque de nodo de pruebas.
+- [`scripts/dev/`](scripts/dev/) — **demostración en vivo del
+  recovery (`demo.sh`)**, demo TFG orquestada (`demo-tfg.sh`),
+  *proofs* de flujos y arranque de nodo de pruebas.
 - [`scripts/ops/`](scripts/ops/) — *backup*/*restore*, *load
   test smoke* con Apache Bench, verificación de cadena de
   suministro Reed-Solomon, *smoke* de observabilidad.

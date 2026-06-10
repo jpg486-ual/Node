@@ -4,8 +4,10 @@
 # entre socket de aplicacion y socket de management).
 
 global:
-  scrape_interval: 15s
-  evaluation_interval: 15s
+  # 5s para una demo reactiva: los gauges (risk score, candidatos, huérfanos) se mueven
+  # casi en vivo. Para producción real subir a 15s (menos carga de scrape).
+  scrape_interval: 5s
+  evaluation_interval: 5s
   external_labels:
     # Estampa de topologia: util cuando varios compose stacks escriben al mismo
     # TSDB de prod (federacion). En un unico stack de TFG es redundante pero no
