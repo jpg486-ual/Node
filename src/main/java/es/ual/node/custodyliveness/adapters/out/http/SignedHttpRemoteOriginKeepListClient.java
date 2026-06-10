@@ -86,7 +86,7 @@ public class SignedHttpRemoteOriginKeepListClient implements RemoteOriginKeepLis
   }
 
   @Override
-  public List<String> requestKeepList(
+  public OriginKeepListResult requestKeepList(
       final String originBaseUrl, final String requesterNodeId, final List<String> fragmentIds) {
     if (originBaseUrl == null || originBaseUrl.isBlank()) {
       throw new IllegalArgumentException("originBaseUrl must not be blank");
@@ -168,7 +168,9 @@ public class SignedHttpRemoteOriginKeepListClient implements RemoteOriginKeepLis
         throw new RemoteOriginKeepListException(
             "Unable to parse keep-list-response body", exception);
       }
-      return parsed.keepFragmentIds == null ? List.of() : List.copyOf(parsed.keepFragmentIds);
+      final List<String> keep =
+          parsed.keepFragmentIds == null ? List.of() : List.copyOf(parsed.keepFragmentIds);
+      return new OriginKeepListResult(keep, parsed.tutorBaseUrl);
     } finally {
       span.end();
     }
@@ -185,5 +187,6 @@ public class SignedHttpRemoteOriginKeepListClient implements RemoteOriginKeepLis
   /** Wire response body. */
   private static final class ResponseBody {
     public List<String> keepFragmentIds;
+    public String tutorBaseUrl;
   }
 }

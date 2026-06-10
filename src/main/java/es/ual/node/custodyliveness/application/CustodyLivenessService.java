@@ -457,8 +457,18 @@ public class CustodyLivenessService {
       final Instant now,
       final int attemptCount) {
     final CustodyEscalationPolicy policy = properties.getEscalationPolicy();
+    // Inyecta el tutor del origen aprendido vía keep-list (sesión-hint por requesterNodeId) en la
+    // sesión que ve la escalation, para que RETURN_TO_TUTOR contacte al tutor de ESE origen. Cubre
+    // ambos caminos (outbound probe y expiry) porque ambos pasan por aquí.
+    final CustodyProbeSession probed = enrichWithOriginTutorHint(session);
     try {
-      custodyEscalationPort.handleUnresponsive(session, fragments, reason, now, policy);
+      custodyEscalationPort.handleUnresponsive(probed, fragments, reason, now, policy);
+      // handleUnresponsive solo retorna normalmente cuando el retorno se completó (en defer/tutor
+      // caído lanza). Tras un RETURN_TO_TUTOR completado ya no custodiamos nada para el origen →
+      // purga el hint.
+      if (policy == CustodyEscalationPolicy.RETURN_TO_TUTOR) {
+        clearOriginTutorHint(session.remoteNodeId(), now);
+      }
       final CustodyProbeSession escalated =
           CustodyProbeSession.withoutRemoteTutor(
               session.sessionId(),
@@ -508,6 +518,70 @@ public class CustodyLivenessService {
       return exception.getMessage();
     }
     return exception.getClass().getSimpleName();
+  }
+
+  /**
+   * Returns a copy of {@code session} with {@code remoteTutorBaseUrl} populated from the
+   * per-requester origin-tutor hint (learned via keep-list) when the session does not already carry
+   * one. Leaves the session untouched when there is no hint, so escalation falls back to the
+   * node-global tutor.
+   */
+  private CustodyProbeSession enrichWithOriginTutorHint(final CustodyProbeSession session) {
+    if (session == null
+        || session.remoteNodeId() == null
+        || (session.remoteTutorBaseUrl() != null && !session.remoteTutorBaseUrl().isBlank())) {
+      return session;
+    }
+    final String tutor =
+        sessionPort
+            .findById(CustodyProbeSession.ORIGIN_TUTOR_HINT_PREFIX + session.remoteNodeId())
+            .map(CustodyProbeSession::remoteTutorBaseUrl)
+            .filter(value -> value != null && !value.isBlank())
+            .orElse(null);
+    if (tutor == null) {
+      return session;
+    }
+    return new CustodyProbeSession(
+        session.sessionId(),
+        session.remoteNodeId(),
+        session.direction(),
+        session.status(),
+        session.attemptCount(),
+        session.lastSuccessAt(),
+        session.lastAttemptAt(),
+        session.nextAttemptAt(),
+        session.lastError(),
+        session.reverseProbeCooldownUntil(),
+        session.createdAt(),
+        session.updatedAt(),
+        tutor.trim());
+  }
+
+  /** Clears the per-requester origin-tutor hint (after a completed RETURN_TO_TUTOR). */
+  private void clearOriginTutorHint(final String requesterNodeId, final Instant now) {
+    if (requesterNodeId == null || requesterNodeId.isBlank()) {
+      return;
+    }
+    sessionPort
+        .findById(CustodyProbeSession.ORIGIN_TUTOR_HINT_PREFIX + requesterNodeId)
+        .filter(s -> s.remoteTutorBaseUrl() != null)
+        .ifPresent(
+            s ->
+                sessionPort.save(
+                    new CustodyProbeSession(
+                        s.sessionId(),
+                        s.remoteNodeId(),
+                        s.direction(),
+                        s.status(),
+                        s.attemptCount(),
+                        s.lastSuccessAt(),
+                        s.lastAttemptAt(),
+                        s.nextAttemptAt(),
+                        s.lastError(),
+                        s.reverseProbeCooldownUntil(),
+                        s.createdAt(),
+                        now,
+                        null)));
   }
 
   private int resolveEscalationAttemptThreshold() {

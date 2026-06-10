@@ -323,16 +323,18 @@ public class TutorReturnCustodyEscalationPort implements CustodyEscalationPort {
   /**
    * Resolves the tutor base URL for a {@code RETURN_TO_TUTOR} escalation.
    *
-   * <p>Prefers the requester (remote peer) tutor carried in the probe session ({@link
-   * CustodyProbeSession#remoteTutorBaseUrl}). Falls back to the local node tutor configuration when
-   * the session does not carry a remote tutor (legacy session created before V20 or when the
-   * requester did not propagate its tutor in the originating {@link
-   * es.ual.node.negotiation.domain.NegotiationAgreement}). The fallback emits a WARN log so the
-   * operator can detect topologies where the assumption "all nodes share one tutor" silently holds.
+   * <p>Prefers the per-requester tutor carried in the probe session ({@link
+   * CustodyProbeSession#remoteTutorBaseUrl}). That value is learned live from the origin's
+   * keep-list response and cached on a per-requester hint session (see {@link
+   * CustodyProbeSession#ORIGIN_TUTOR_HINT_PREFIX}); {@code CustodyLivenessService} injects it into
+   * the escalated session. When no per-origin tutor is known, resolves the node-global {@code
+   * node.topology.tutorBaseUrl} — the authoritative source in a single-tutor topology, not a
+   * degradation, so it logs at DEBUG. A WARN/throw is reserved for the genuine misconfiguration
+   * where neither a per-origin tutor nor the global config is available.
    *
    * @param session probe session whose remote node is being escalated
    * @return tutor base URL to receive the orphan fragments
-   * @throws IllegalStateException when neither the session nor the local config provide a tutor
+   * @throws IllegalStateException when neither the session nor the global config provide a tutor
    */
   private String resolveTutorBaseUrl(final CustodyProbeSession session) {
     if (session != null
@@ -341,25 +343,32 @@ public class TutorReturnCustodyEscalationPort implements CustodyEscalationPort {
       return session.remoteTutorBaseUrl().trim();
     }
 
-    final String fallback = nodeTopologyProperties.getTutorBaseUrl();
-    if (fallback == null || fallback.isBlank()) {
+    final String global = nodeTopologyProperties.getTutorBaseUrl();
+    if (global == null || global.isBlank()) {
+      LOGGER
+          .atWarn()
+          .setMessage(
+              "RETURN_TO_TUTOR cannot resolve a tutor: probe session carries no per-origin tutor"
+                  + " and node.topology.tutorBaseUrl is not configured")
+          .addKeyValue("sessionId", session == null ? null : session.sessionId())
+          .addKeyValue("remoteNodeId", session == null ? null : session.remoteNodeId())
+          .log();
       throw new IllegalStateException(
-          "node.topology.tutorBaseUrl must be configured for RETURN_TO_TUTOR when probe"
-              + " session does not carry a remote tutor");
+          "node.topology.tutorBaseUrl must be configured for RETURN_TO_TUTOR when the probe"
+              + " session does not carry a per-origin tutor");
     }
 
     LOGGER
-        .atWarn()
+        .atDebug()
         .setMessage(
-            "RETURN_TO_TUTOR using local tutor fallback because probe session does not"
-                + " carry remoteTutorBaseUrl (legacy session or requester did not propagate"
-                + " requesterTutorBaseUrl)")
+            "RETURN_TO_TUTOR resolving tutor from node-global node.topology.tutorBaseUrl"
+                + " (single-tutor topology; no per-origin tutor learned for this requester)")
         .addKeyValue("sessionId", session == null ? null : session.sessionId())
         .addKeyValue("remoteNodeId", session == null ? null : session.remoteNodeId())
-        .addKeyValue("fallbackTutorBaseUrl", fallback)
+        .addKeyValue("tutorBaseUrl", global)
         .log();
 
-    return fallback.trim();
+    return global.trim();
   }
 
   private String normalizeBaseUrl(final String baseUrl) {

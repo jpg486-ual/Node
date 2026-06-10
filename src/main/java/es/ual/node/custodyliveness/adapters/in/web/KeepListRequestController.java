@@ -1,5 +1,6 @@
 package es.ual.node.custodyliveness.adapters.in.web;
 
+import es.ual.node.bootstrap.configuration.NodeTopologyProperties;
 import es.ual.node.custodyliveness.application.CustodyLivenessProperties;
 import es.ual.node.custodyliveness.application.OriginInboundKeepListService;
 import es.ual.node.identitysecurity.adapters.in.web.RequestSignatureValidator;
@@ -32,16 +33,19 @@ public class KeepListRequestController {
 
   private final OriginInboundKeepListService keepListService;
   private final CustodyLivenessProperties livenessProperties;
+  private final NodeTopologyProperties nodeTopologyProperties;
 
   /** Creates controller. */
   public KeepListRequestController(
       final OriginInboundKeepListService keepListService,
-      final CustodyLivenessProperties livenessProperties) {
-    if (keepListService == null || livenessProperties == null) {
+      final CustodyLivenessProperties livenessProperties,
+      final NodeTopologyProperties nodeTopologyProperties) {
+    if (keepListService == null || livenessProperties == null || nodeTopologyProperties == null) {
       throw new IllegalArgumentException("dependencies must not be null");
     }
     this.keepListService = keepListService;
     this.livenessProperties = livenessProperties;
+    this.nodeTopologyProperties = nodeTopologyProperties;
   }
 
   /** Procesa el probe entrante del custodian y devuelve la whitelist. */
@@ -82,7 +86,10 @@ public class KeepListRequestController {
       final var keep =
           keepListService.processProbe(
               custodianNodeId, custodianBaseUrl, payload.requesterNodeId(), payload.fragmentIds());
-      return ResponseEntity.ok(new KeepListResponsePayload(keep));
+      // Anunciamos nuestro propio tutor para que el custodian lo aprenda y lo vincule a este
+      // origen: habilita RETURN_TO_TUTOR al tutor correcto en topologías multi-tutor.
+      return ResponseEntity.ok(
+          new KeepListResponsePayload(keep, nodeTopologyProperties.getTutorBaseUrl()));
     } catch (IllegalArgumentException exception) {
       return ResponseEntity.badRequest()
           .body(ApiErrorPayload.of("CUSTODY_LIVENESS_INVALID_REQUEST", exception.getMessage()));

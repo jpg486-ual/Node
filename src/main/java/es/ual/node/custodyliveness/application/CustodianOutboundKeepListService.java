@@ -1,9 +1,14 @@
 package es.ual.node.custodyliveness.application;
 
+import es.ual.node.custodyliveness.domain.CustodyProbeDirection;
 import es.ual.node.custodyliveness.domain.CustodyProbeFragment;
+import es.ual.node.custodyliveness.domain.CustodyProbeSession;
+import es.ual.node.custodyliveness.domain.CustodyProbeStatus;
 import es.ual.node.custodyliveness.ports.out.CustodyFragmentInventoryPort;
 import es.ual.node.custodyliveness.ports.out.CustodyFragmentLifecyclePort;
+import es.ual.node.custodyliveness.ports.out.CustodyProbeSessionPort;
 import es.ual.node.custodyliveness.ports.out.RemoteOriginKeepListClientPort;
+import es.ual.node.custodyliveness.ports.out.RemoteOriginKeepListClientPort.OriginKeepListResult;
 import es.ual.node.custodyliveness.ports.out.RemoteOriginKeepListClientPort.RemoteOriginKeepListException;
 import java.time.Clock;
 import java.time.Instant;
@@ -41,6 +46,7 @@ public class CustodianOutboundKeepListService {
   private final CustodyFragmentLifecyclePort lifecyclePort;
   private final RemoteOriginKeepListClientPort keepListClient;
   private final CustodyLivenessProperties livenessProperties;
+  private final CustodyProbeSessionPort sessionPort;
   private final Clock clock;
 
   /** Creates service. */
@@ -49,11 +55,13 @@ public class CustodianOutboundKeepListService {
       final CustodyFragmentLifecyclePort lifecyclePort,
       final RemoteOriginKeepListClientPort keepListClient,
       final CustodyLivenessProperties livenessProperties,
+      final CustodyProbeSessionPort sessionPort,
       final Clock clock) {
     if (inventoryPort == null
         || lifecyclePort == null
         || keepListClient == null
         || livenessProperties == null
+        || sessionPort == null
         || clock == null) {
       throw new IllegalArgumentException("dependencies must not be null");
     }
@@ -61,6 +69,7 @@ public class CustodianOutboundKeepListService {
     this.lifecyclePort = lifecyclePort;
     this.keepListClient = keepListClient;
     this.livenessProperties = livenessProperties;
+    this.sessionPort = sessionPort;
     this.clock = clock;
   }
 
@@ -98,9 +107,17 @@ public class CustodianOutboundKeepListService {
         continue;
       }
       try {
-        final List<String> keepList =
+        final OriginKeepListResult result =
             keepListClient.requestKeepList(originBaseUrl, requesterNodeId, myFragmentIds);
         probesSent++;
+        final List<String> keepList = result.keepFragmentIds();
+        // Aprende/refresca el tutor que el origen anuncia (propaga si cambia); si el origen
+        // devuelve lista vacía ya no custodia nada para él → purga el hint.
+        if (keepList.isEmpty()) {
+          clearOriginTutorHint(requesterNodeId);
+        } else {
+          upsertOriginTutorHint(requesterNodeId, result.tutorBaseUrl(), now);
+        }
         final Set<String> keepSet = new HashSet<>(keepList);
         final long renewHorizon = Math.max(1L, livenessProperties.getRenewalHorizonSeconds());
         final long renewBy = Math.max(1L, livenessProperties.getRenewalSeconds());
@@ -159,6 +176,65 @@ public class CustodianOutboundKeepListService {
       }
     }
     return new CycleSummary(probesSent, totalPurged, requesterErrors);
+  }
+
+  /**
+   * Aprende/refresca el tutor anunciado por el origen, vinculado al {@code requesterNodeId}, en una
+   * sesión-hint inerte ({@code next_attempt_at=null} → los workers de sonda la ignoran).
+   * Idempotente: no reescribe si el tutor no cambió.
+   */
+  private void upsertOriginTutorHint(
+      final String requesterNodeId, final String tutorBaseUrl, final Instant now) {
+    if (tutorBaseUrl == null || tutorBaseUrl.isBlank()) {
+      return;
+    }
+    final String trimmed = tutorBaseUrl.trim();
+    final String id = CustodyProbeSession.ORIGIN_TUTOR_HINT_PREFIX + requesterNodeId;
+    final var existing = sessionPort.findById(id);
+    if (existing.isPresent() && trimmed.equals(existing.get().remoteTutorBaseUrl())) {
+      return;
+    }
+    final Instant createdAt = existing.map(CustodyProbeSession::createdAt).orElse(now);
+    sessionPort.save(
+        new CustodyProbeSession(
+            id,
+            requesterNodeId,
+            CustodyProbeDirection.OUTBOUND,
+            CustodyProbeStatus.ACTIVE,
+            0,
+            now,
+            now,
+            null,
+            null,
+            null,
+            createdAt,
+            now,
+            trimmed));
+  }
+
+  /** Limpia el tutor-hint del origen (origen relinquished todos sus fragments). */
+  private void clearOriginTutorHint(final String requesterNodeId) {
+    final String id = CustodyProbeSession.ORIGIN_TUTOR_HINT_PREFIX + requesterNodeId;
+    sessionPort
+        .findById(id)
+        .filter(s -> s.remoteTutorBaseUrl() != null)
+        .ifPresent(
+            s ->
+                sessionPort.save(
+                    new CustodyProbeSession(
+                        s.sessionId(),
+                        s.remoteNodeId(),
+                        s.direction(),
+                        s.status(),
+                        s.attemptCount(),
+                        s.lastSuccessAt(),
+                        s.lastAttemptAt(),
+                        s.nextAttemptAt(),
+                        s.lastError(),
+                        s.reverseProbeCooldownUntil(),
+                        s.createdAt(),
+                        Instant.now(clock),
+                        null)));
   }
 
   /** Resumen de un ciclo de probes outbound. */

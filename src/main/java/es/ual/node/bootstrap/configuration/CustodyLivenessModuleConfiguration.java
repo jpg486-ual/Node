@@ -278,9 +278,10 @@ public class CustodyLivenessModuleConfiguration {
       final CustodyFragmentLifecyclePort lifecyclePort,
       final RemoteOriginKeepListClientPort keepListClient,
       final CustodyLivenessProperties livenessProperties,
+      final CustodyProbeSessionPort sessionPort,
       final Clock clock) {
     return new CustodianOutboundKeepListService(
-        inventoryPort, lifecyclePort, keepListClient, livenessProperties, clock);
+        inventoryPort, lifecyclePort, keepListClient, livenessProperties, sessionPort, clock);
   }
 
   /** scheduled worker custodian-side. */
